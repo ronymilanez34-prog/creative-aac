@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../services/companion_service.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
 import 'build/build_story_screen.dart';
+import 'companion_screen.dart';
 import 'my_stories_screen.dart';
 
 /// Calm landing screen: one clear primary action (build a story) plus access
@@ -41,8 +43,20 @@ class HomeScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 40),
                   BigButton(
+                    label: 'בואו ניצור ביחד',
+                    emoji: '🤖',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            CompanionScreen(service: MockCompanionService()),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  BigButton(
                     label: 'בואו נבנה סיפור',
                     emoji: '🪄',
+                    color: AppColors.accent,
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => const BuildStoryScreen(),
