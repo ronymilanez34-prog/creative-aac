@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../services/board_store.dart';
 import '../services/companion_service.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
-import 'build/build_story_screen.dart';
+import 'build_story_screen.dart';
 import 'companion_screen.dart';
 import 'my_stories_screen.dart';
+import 'my_words_screen.dart';
 
 /// Calm landing screen: one clear primary action (build a story) plus access
 /// to saved stories. Deliberately sparse to keep it predictable and low-load.
@@ -45,12 +47,20 @@ class HomeScreen extends StatelessWidget {
                   BigButton(
                     label: 'בואו ניצור ביחד',
                     emoji: '🤖',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            CompanionScreen(service: MockCompanionService()),
-                      ),
-                    ),
+                    onTap: () async {
+                      // The companion offers the user's own imported words as
+                      // options, so load them before opening the conversation.
+                      final vocabulary = await BoardStore().load();
+                      if (!context.mounted) return;
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => CompanionScreen(
+                            service:
+                                MockCompanionService(vocabulary: vocabulary),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 16),
                   BigButton(
@@ -71,6 +81,17 @@ class HomeScreen extends StatelessWidget {
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => const MyStoriesScreen(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  BigButton(
+                    label: 'המילים שלי',
+                    emoji: '💬',
+                    color: AppColors.primaryDark,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const MyWordsScreen(),
                       ),
                     ),
                   ),

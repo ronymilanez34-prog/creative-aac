@@ -1,7 +1,9 @@
 # Flutter/Dart/Pub
 .dart_tool/
 .packages
-build/
+# Only the top-level build output — a bare "build/" also swallowed
+# lib/screens/build/, silently keeping source files out of the repo.
+/build/
 .flutter-plugins
 .flutter-plugins-dependencies
 pubspec.lock

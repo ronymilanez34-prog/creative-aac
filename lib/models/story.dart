@@ -5,11 +5,20 @@
 /// [StoryPage]s that can be read on screen and spoken aloud.
 
 class Choice {
-  const Choice({required this.id, required this.label, required this.emoji});
+  const Choice({
+    required this.id,
+    required this.label,
+    required this.emoji,
+    this.imagePath,
+  });
 
   final String id;
   final String label;
   final String emoji;
+
+  /// Absolute path to an image from the user's imported board — when set,
+  /// the UI shows the familiar picture instead of the emoji.
+  final String? imagePath;
 }
 
 /// The user's in-progress selections while building a story.

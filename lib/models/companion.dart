@@ -2,10 +2,14 @@
 /// Mirrors the JSON output contract in docs/prompts/companion_system_prompt.md.
 
 class ChipOption {
-  const ChipOption({required this.emoji, required this.label});
+  const ChipOption({required this.emoji, required this.label, this.imagePath});
 
   final String emoji;
   final String label;
+
+  /// Absolute path to an image from the user's imported board — when set,
+  /// the chip shows the familiar picture instead of the emoji.
+  final String? imagePath;
 
   factory ChipOption.fromJson(Map<String, dynamic> j) => ChipOption(
         emoji: (j['emoji'] ?? '').toString(),

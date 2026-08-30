@@ -1,3 +1,4 @@
+import '../models/board.dart';
 import '../models/companion.dart';
 
 /// Produces companion turns. The UI depends only on this interface, so the
@@ -17,18 +18,40 @@ abstract class CompanionService {
 /// the key ideas: supported options + free input, celebrating the user's own
 /// words, and the "confirmation, not silent decision" mechanic.
 class MockCompanionService implements CompanionService {
+  MockCompanionService({List<BoardWord> vocabulary = const []})
+      : _vocabulary = vocabulary;
+
+  /// The user's own words, imported from their AAC board. When present, the
+  /// companion offers THESE as options — familiar words with familiar
+  /// pictures — instead of our generic defaults.
+  final List<BoardWord> _vocabulary;
+
   int _step = 0;
 
+  /// Up to [count] vocabulary words starting at [from], as tappable chips.
+  List<ChipOption> _vocabChips(int from, int count) => _vocabulary
+      .skip(from)
+      .take(count)
+      .map((w) => ChipOption(emoji: '💬', label: w.label, imagePath: w.imagePath))
+      .toList();
+
   @override
-  CompanionTurn opening() => const CompanionTurn(
-        say: 'היי! בוא ניצור סיפור ביחד 🙂 על מה בא לך?',
-        options: [
+  CompanionTurn opening() {
+    final vocab = _vocabChips(0, 3);
+    return CompanionTurn(
+      say: 'היי! בוא ניצור סיפור ביחד 🙂 על מה בא לך?',
+      options: [
+        if (vocab.isNotEmpty)
+          ...vocab
+        else ...const [
           ChipOption(emoji: '🐶', label: 'כלב'),
           ChipOption(emoji: '🚀', label: 'חלל'),
           ChipOption(emoji: '⚽', label: 'כדורגל'),
-          ChipOption(emoji: '❓', label: 'משהו אחר'),
         ],
-      );
+        const ChipOption(emoji: '❓', label: 'משהו אחר'),
+      ],
+    );
+  }
 
   @override
   Future<CompanionTurn> turn(String userInput) async {
@@ -62,14 +85,19 @@ class MockCompanionService implements CompanionService {
         );
 
       case 3:
+        final moreVocab = _vocabChips(3, 3);
         return CompanionTurn(
           say: 'מושלם, הבנתי. ומי עוד נמצא שם איתו?',
           creationUpdate: 'הוא הגיע $input, וזה היה בדיוק המקום בשבילו.',
-          options: const [
-            ChipOption(emoji: '👧', label: 'חברה'),
-            ChipOption(emoji: '👵', label: 'סבתא'),
-            ChipOption(emoji: '🐱', label: 'חתול'),
-            ChipOption(emoji: '❓', label: 'משהו אחר'),
+          options: [
+            if (moreVocab.isNotEmpty)
+              ...moreVocab
+            else ...const [
+              ChipOption(emoji: '👧', label: 'חברה'),
+              ChipOption(emoji: '👵', label: 'סבתא'),
+              ChipOption(emoji: '🐱', label: 'חתול'),
+            ],
+            const ChipOption(emoji: '❓', label: 'משהו אחר'),
           ],
         );
 

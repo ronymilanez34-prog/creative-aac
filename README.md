@@ -34,18 +34,37 @@ lib/
 ├── main.dart                     # נקודת כניסה, ערכת נושא, RTL
 ├── theme.dart                    # פלטת צבעים רגועה
 ├── models/story.dart             # Choice / StorySpec / Story / StoryPage
+├── models/board.dart             # BoardWord — מילה מיובאת מלוח התקשורת האישי
 ├── data/choices.dart             # הגיבורים, המקומות, האירועים — לעריכה כאן
 ├── services/
 │   ├── story_generator.dart      # הלב ה"יצרני" — Local היום, AI מחר
 │   ├── speech.dart               # הקראה קולית בעברית
-│   └── story_store.dart          # שמירת סיפורים במכשיר
+│   ├── story_store.dart          # שמירת סיפורים במכשיר
+│   ├── obz_importer.dart         # פרסור Open Board Format ‏(.obz/.obf)
+│   └── board_store.dart          # שמירת אוצר המילים המיובא במכשיר
 ├── screens/
 │   ├── home_screen.dart          # מסך פתיחה
-│   ├── build/build_story_screen.dart  # אשף בניית הסיפור (3 שלבים)
+│   ├── build_story_screen.dart   # אשף בניית הסיפור (3 שלבים)
 │   ├── story_view_screen.dart    # קריאה + הקראה, עמוד-עמוד
-│   └── my_stories_screen.dart    # סיפורים שמורים
-└── widgets/                      # BigButton, ChoiceCard
+│   ├── my_stories_screen.dart    # סיפורים שמורים
+│   └── my_words_screen.dart      # "המילים שלי" — ייבוא לוח תקשורת קיים
+└── widgets/                      # BigButton, ChoiceCard, BoardImage
 ```
+
+## "המילים שלי" — ייבוא מלוח התקשורת הקיים
+
+למשתמשי תת״ח יומיומיים יש כבר אוצר מילים שלם — המילים, התמונות האישיות והארגון
+שהם מכירים בעל־פה. במקום ללמד מערכת חדשה, האפליקציה מייבאת אותו:
+
+1. באפליקציית התקשורת הקיימת מייצאים קובץ **‎.obz** (תקן
+   [Open Board Format](https://www.openboardformat.org) — נתמך למשל ב-CoughDrop).
+2. במסך **"המילים שלי"** בוחרים את הקובץ. המילים והתמונות נשמרות מקומית במכשיר.
+3. מעכשיו המילים המוכרות — עם התמונות המוכרות — מופיעות כאפשרויות בחירה בשיחת
+   ה"בואו ניצור ביחד" וכגיבורים בבניית הסיפור.
+
+הערה: תמונות שמפנות ל-URL חיצוני בלבד מדולגות (הייבוא עובד גם בלי רשת), וסמלים
+מסחריים ברישיון (PCS, SymbolStix) שייכים לאפליקציה שבה נרכשו — התמונות החשובות
+באמת הן ממילא התמונות האישיות שהמשפחה הוסיפה בעצמה.
 
 ## הצעד היצרני הבא: חיבור AI אמיתי
 

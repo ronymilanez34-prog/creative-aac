@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/story.dart';
 import '../theme.dart';
+import 'board_image.dart';
 
 /// A selectable card for one [Choice]: big emoji + label, with a clear
 /// selected state. Used in the story-building steps.
@@ -43,8 +44,11 @@ class ChoiceCard extends StatelessWidget {
             children: [
               Expanded(
                 child: FittedBox(
-                  child: Text(choice.emoji,
-                      style: const TextStyle(fontSize: 60)),
+                  child: BoardImage(
+                    imagePath: choice.imagePath,
+                    emoji: choice.emoji,
+                    size: 60,
+                  ),
                 ),
               ),
               const SizedBox(height: 6),

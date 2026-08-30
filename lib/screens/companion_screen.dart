@@ -5,6 +5,7 @@ import '../services/companion_service.dart';
 import '../services/speech.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
+import '../widgets/board_image.dart';
 
 /// The demo interface: "supported free conversation" co-creation.
 ///
@@ -306,7 +307,7 @@ class _Chip extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(option.emoji, style: const TextStyle(fontSize: 24)),
+              BoardImage(imagePath: option.imagePath, emoji: option.emoji, size: 28),
               const SizedBox(width: 8),
               Text(
                 option.label,
