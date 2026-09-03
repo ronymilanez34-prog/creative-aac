@@ -91,8 +91,8 @@ class _PartnerScreenState extends State<PartnerScreen> {
     );
   }
 
-  Future<void> _addScript() async {
-    final expression = TextEditingController();
+  Future<void> _addScript({String? prefill}) async {
+    final expression = TextEditingController(text: prefill ?? '');
     final meaning = TextEditingController();
     final added = await showDialog<bool>(
       context: context,
@@ -233,6 +233,51 @@ class _PartnerScreenState extends State<PartnerScreen> {
                     onTap: _save,
                   ),
                   const SizedBox(height: 28),
+                  const _SectionTitle('שבילי רצון'),
+                  const Text(
+                    'ביטויים שהמשתמש הקליד שוב ושוב — שביל שנשחק בדשא. '
+                    'אפשר "לסלול" אותו: להוסיף לספריית הביטויים בלחיצה.',
+                    style: TextStyle(color: AppColors.textSoft),
+                  ),
+                  const SizedBox(height: 8),
+                  FutureBuilder<Map<String, int>>(
+                    future: _log.freeTextCounts(),
+                    builder: (context, snap) {
+                      final counts = snap.data ?? const {};
+                      final repeated = counts.entries
+                          .where((e) => e.value >= 2)
+                          .toList()
+                        ..sort((a, b) => b.value.compareTo(a.value));
+                      if (repeated.isEmpty) {
+                        return const Padding(
+                          padding: EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            'עדיין אין ביטויים חוזרים.',
+                            style: TextStyle(color: AppColors.textSoft),
+                          ),
+                        );
+                      }
+                      return Column(
+                        children: [
+                          for (final e in repeated.take(5))
+                            Card(
+                              color: AppColors.surface,
+                              child: ListTile(
+                                title: Text('"${e.key}"'),
+                                subtitle: Text('הוקלד ${e.value} פעמים'),
+                                trailing: IconButton(
+                                  tooltip: 'הוספה לספריית הביטויים',
+                                  icon: const Icon(Icons.add_road),
+                                  onPressed: () =>
+                                      _addScript(prefill: e.key),
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 20),
                   const _SectionTitle('נתוני שימוש (לקלינאית)'),
                   _UsageSummary(log: _log),
                   const SizedBox(height: 8),

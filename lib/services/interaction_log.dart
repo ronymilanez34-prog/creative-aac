@@ -100,6 +100,20 @@ class InteractionLog {
     return counts;
   }
 
+  /// Free-text inputs the user typed, counted — the "desire paths" signal:
+  /// a phrase typed again and again is a path worn in the grass, a candidate
+  /// for the script library or the interests list.
+  Future<Map<String, int>> freeTextCounts() async {
+    final counts = <String, int>{};
+    for (final e in await entries()) {
+      if (e['type'] == 'selection' && e['kind'] == 'text') {
+        final t = (e['chosen'] ?? '').toString().trim();
+        if (t.isNotEmpty) counts[t] = (counts[t] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
   /// Full log as JSON — for the clinician export.
   Future<String> export() async =>
       const JsonEncoder.withIndent('  ').convert(await entries());

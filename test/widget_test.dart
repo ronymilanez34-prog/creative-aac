@@ -8,6 +8,7 @@ import 'package:creative_aac/models/profile.dart';
 import 'package:creative_aac/models/story.dart';
 import 'package:creative_aac/screens/partner_screen.dart';
 import 'package:creative_aac/services/chip_layout.dart';
+import 'package:creative_aac/services/interaction_log.dart';
 
 void main() {
   testWidgets('home screen shows the calm landing actions', (tester) async {
@@ -95,5 +96,34 @@ void main() {
     // A remembered slot beyond the current count falls back gracefully.
     final shrunk = slots.arrange(const [dog]);
     expect(shrunk.single.label, 'כלב');
+  });
+
+  test('interaction log surfaces repeated free-text as desire paths', () async {
+    SharedPreferences.setMockInitialValues({});
+    final log = InteractionLog();
+    for (var i = 0; i < 3; i++) {
+      await log.logSelection(
+        shownOptions: const [],
+        chosen: 'אוטובוס',
+        chosenIndex: -1,
+        kind: 'text',
+        source: 'user',
+        lowEnergy: false,
+        latencyMs: 100,
+      );
+    }
+    await log.logSelection(
+      shownOptions: const ['כלב'],
+      chosen: 'כלב',
+      chosenIndex: 0,
+      kind: 'chip',
+      source: 'user',
+      lowEnergy: false,
+      latencyMs: 100,
+    );
+
+    final counts = await log.freeTextCounts();
+    expect(counts['אוטובוס'], 3);
+    expect(counts.containsKey('כלב'), isFalse);
   });
 }
