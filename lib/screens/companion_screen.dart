@@ -1,20 +1,25 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/companion.dart';
 import '../services/companion_service.dart';
+import '../services/interaction_log.dart';
 import '../services/speech.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
+import '../widgets/quick_bar.dart';
 
-/// The demo interface: "supported free conversation" co-creation.
+/// The creation loop: "supported free conversation" co-creation.
 ///
 /// Layout, top → bottom:
-///  • the creation growing (the story so far),
-///  • the companion's message (with read-aloud),
-///  • either a confirmation prompt, or the tappable options + free-text input.
+///  • the creation growing (the stage),
+///  • the companion's message (with read-aloud) + partner tip (partner mode),
+///  • either a confirmation prompt, or the tappable options + free-text input,
+///  • the always-available quick-fire strip (local, no AI).
 ///
 /// Driven by [CompanionService]; the demo passes a [MockCompanionService] so it
-/// runs instantly with no backend.
+/// runs instantly with no backend, the real app passes ClaudeCompanionService.
 class CompanionScreen extends StatefulWidget {
   const CompanionScreen({super.key, required this.service});
 
@@ -26,23 +31,47 @@ class CompanionScreen extends StatefulWidget {
 
 class _CompanionScreenState extends State<CompanionScreen> {
   final Speech _speech = Speech();
+  final InteractionLog _log = InteractionLog();
   final TextEditingController _input = TextEditingController();
   final ScrollController _creationScroll = ScrollController();
 
-  final List<String> _creation = [];
+  final List<CreationPiece> _creation = [];
   late CompanionTurn _turn;
+
+  /// The chips in the order actually shown. Reshuffled every turn so the
+  /// selection log can detect position bias (choices tracking screen location
+  /// rather than content).
+  List<ChipOption> _displayOptions = const [];
+  DateTime _optionsShownAt = DateTime.now();
+
   bool _busy = false;
+  bool _failed = false;
+  String _lastInput = '';
+  InputSource _lastSource = InputSource.user;
+
+  bool _lowEnergy = false;
+  bool _partnerMode = false;
+
+  /// When armed (partner mode), the next tap is a partner's modelling turn —
+  /// marked as such end-to-end and never treated as the user's own choice.
+  bool _partnerArmed = false;
+
+  QuickFire? _activeQuickFire;
+  Timer? _quickFireTimer;
 
   @override
   void initState() {
     super.initState();
     _turn = widget.service.opening();
+    _displayOptions = List<ChipOption>.of(_turn.options)..shuffle();
+    _optionsShownAt = DateTime.now();
     // Speak the opening after the first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) => _speak(_turn.say));
   }
 
   @override
   void dispose() {
+    _quickFireTimer?.cancel();
     _speech.dispose();
     _input.dispose();
     _creationScroll.dispose();
@@ -51,24 +80,119 @@ class _CompanionScreenState extends State<CompanionScreen> {
 
   void _speak(String text) => _speech.speak(text);
 
-  Future<void> _send(String text) async {
+  String get _creationText => _creation.map((p) => p.text).join(' ');
+
+  void _applyTurn(CompanionTurn turn, {bool speak = true}) {
+    setState(() {
+      _turn = turn;
+      _displayOptions = List<ChipOption>.of(turn.options)..shuffle();
+      _optionsShownAt = DateTime.now();
+      _failed = false;
+      _busy = false;
+    });
+    if (speak) _speak(turn.say);
+  }
+
+  Future<void> _send(
+    String text, {
+    required String kind, // 'chip' | 'text' | 'confirm'
+    int chosenIndex = -1,
+  }) async {
     final t = text.trim();
     if (t.isEmpty || _busy) return;
     _input.clear();
-    setState(() => _busy = true);
 
-    final next = await widget.service.turn(t);
-    if (!mounted) return;
+    final source = _partnerArmed ? InputSource.partner : InputSource.user;
+    final latency =
+        DateTime.now().difference(_optionsShownAt).inMilliseconds;
+    unawaited(_log.logSelection(
+      shownOptions: _displayOptions.map((o) => o.label).toList(),
+      chosen: t,
+      chosenIndex: chosenIndex,
+      kind: kind,
+      source: source == InputSource.partner ? 'partner' : 'user',
+      lowEnergy: _lowEnergy,
+      latencyMs: latency,
+    ));
 
     setState(() {
-      if (next.creationUpdate != null && next.creationUpdate!.trim().isNotEmpty) {
-        _creation.add(next.creationUpdate!.trim());
-      }
-      _turn = next;
-      _busy = false;
+      _busy = true;
+      _partnerArmed = false;
+      _lastInput = t;
+      _lastSource = source;
     });
-    _speak(next.say);
-    _scrollCreationToEnd();
+
+    try {
+      final next = await widget.service.turn(
+        t,
+        creationSoFar: _creationText,
+        source: source,
+        lowEnergy: _lowEnergy,
+      );
+      if (!mounted) return;
+
+      if (next.creationUpdate != null &&
+          next.creationUpdate!.trim().isNotEmpty) {
+        _creation.add(CreationPiece(
+          text: next.creationUpdate!.trim(),
+          userInput: t,
+          source: source,
+        ));
+      }
+      _applyTurn(next);
+      _scrollCreationToEnd();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _failed = true;
+      });
+      _speak('רגע, משהו השתבש. אפשר לנסות שוב.');
+    }
+  }
+
+  Future<void> _retry() async {
+    if (_lastInput.isEmpty || _busy) return;
+    setState(() {
+      _busy = true;
+      _failed = false;
+    });
+    try {
+      final next = await widget.service.turn(
+        _lastInput,
+        creationSoFar: _creationText,
+        source: _lastSource,
+        lowEnergy: _lowEnergy,
+      );
+      if (!mounted) return;
+      if (next.creationUpdate != null &&
+          next.creationUpdate!.trim().isNotEmpty) {
+        _creation.add(CreationPiece(
+          text: next.creationUpdate!.trim(),
+          userInput: _lastInput,
+          source: _lastSource,
+        ));
+      }
+      _applyTurn(next);
+      _scrollCreationToEnd();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _failed = true;
+      });
+    }
+  }
+
+  void _onQuickFire(QuickFire q) {
+    // Local and immediate: speak first, everything else after.
+    _speech.speak(q.spoken);
+    unawaited(_log.logQuickFire(q.label));
+    _quickFireTimer?.cancel();
+    setState(() => _activeQuickFire = q);
+    _quickFireTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _activeQuickFire = null);
+    });
   }
 
   void _scrollCreationToEnd() {
@@ -85,6 +209,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final options =
+        _lowEnergy ? _displayOptions.take(2).toList() : _displayOptions;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('בואו ניצור ביחד'),
@@ -92,13 +219,36 @@ class _CompanionScreenState extends State<CompanionScreen> {
           icon: const Icon(Icons.arrow_forward),
           onPressed: () => Navigator.of(context).pop(),
         ),
+        actions: [
+          IconButton(
+            tooltip: _lowEnergy ? 'חזרה למצב מלא' : 'מצב אנרגיה נמוכה',
+            icon: Icon(
+              _lowEnergy ? Icons.battery_charging_full : Icons.battery_saver,
+            ),
+            onPressed: () => setState(() => _lowEnergy = !_lowEnergy),
+          ),
+          IconButton(
+            tooltip: _partnerMode ? 'סגירת מצב שותף' : 'מצב שותף',
+            icon: Icon(
+              _partnerMode ? Icons.group_rounded : Icons.group_outlined,
+            ),
+            onPressed: () => setState(() {
+              _partnerMode = !_partnerMode;
+              if (!_partnerMode) _partnerArmed = false;
+            }),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(
           children: [
             if (_turn.safeguard) const _SafeguardBanner(),
-            _CreationCard(lines: _creation, scroll: _creationScroll),
+            if (_activeQuickFire != null)
+              _QuickFireBanner(fire: _activeQuickFire!),
+            _CreationCard(text: _creationText, scroll: _creationScroll),
             _CompanionBubble(text: _turn.say, onSpeak: () => _speak(_turn.say)),
+            if (_partnerMode && (_turn.partnerTip?.trim().isNotEmpty ?? false))
+              _PartnerTip(text: _turn.partnerTip!.trim()),
             const Spacer(),
             if (_busy)
               const Padding(
@@ -109,15 +259,26 @@ class _CompanionScreenState extends State<CompanionScreen> {
                   child: CircularProgressIndicator(strokeWidth: 3),
                 ),
               ),
-            if (_turn.needsConfirmation && _turn.confirm != null)
-              _ConfirmArea(prompt: _turn.confirm!, onChoose: _send)
+            if (_failed)
+              _RetryArea(onRetry: _retry)
+            else if (_turn.needsConfirmation && _turn.confirm != null)
+              _ConfirmArea(
+                prompt: _turn.confirm!,
+                onChoose: (o) => _send(o, kind: 'confirm'),
+              )
             else
               _OptionsArea(
-                options: _turn.options,
+                options: options,
                 controller: _input,
-                onChip: _send,
-                onSubmit: _send,
+                lowEnergy: _lowEnergy,
+                partnerMode: _partnerMode,
+                partnerArmed: _partnerArmed,
+                onPartnerArmed: (v) => setState(() => _partnerArmed = v),
+                onChip: (label, index) =>
+                    _send(label, kind: 'chip', chosenIndex: index),
+                onSubmit: (text) => _send(text, kind: 'text'),
               ),
+            QuickBar(onFire: _onQuickFire),
           ],
         ),
       ),
@@ -126,9 +287,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
 }
 
 class _CreationCard extends StatelessWidget {
-  const _CreationCard({required this.lines, required this.scroll});
+  const _CreationCard({required this.text, required this.scroll});
 
-  final List<String> lines;
+  final String text;
   final ScrollController scroll;
 
   @override
@@ -143,17 +304,17 @@ class _CreationCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.border, width: 2),
       ),
-      child: lines.isEmpty
+      child: text.isEmpty
           ? const Center(
               child: Text(
-                'כאן ייבנה הסיפור שלך ✨',
+                'כאן תיבנה היצירה שלך ✨',
                 style: TextStyle(fontSize: 18, color: AppColors.textSoft),
               ),
             )
           : SingleChildScrollView(
               controller: scroll,
               child: Text(
-                lines.join(' '),
+                text,
                 style: const TextStyle(
                   fontSize: 22,
                   height: 1.5,
@@ -209,17 +370,106 @@ class _CompanionBubble extends StatelessWidget {
   }
 }
 
+/// Coaching hint for the partner — visible only in partner mode, visually
+/// separate from the user's conversation.
+class _PartnerTip extends StatelessWidget {
+  const _PartnerTip({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.tips_and_updates_outlined,
+              size: 18, color: AppColors.accent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 14, color: AppColors.textSoft),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickFireBanner extends StatelessWidget {
+  const _QuickFireBanner({required this.fire});
+
+  final QuickFire fire;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: AppColors.accent.withValues(alpha: 0.15),
+      padding: const EdgeInsets.all(14),
+      child: Text(
+        '${fire.emoji}  ${fire.spoken}',
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.w800,
+          color: AppColors.text,
+        ),
+      ),
+    );
+  }
+}
+
+class _RetryArea extends StatelessWidget {
+  const _RetryArea({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+      child: Column(
+        children: [
+          const Text(
+            'משהו השתבש בדרך. ננסה שוב?',
+            style: TextStyle(fontSize: 18, color: AppColors.textSoft),
+          ),
+          const SizedBox(height: 10),
+          BigButton(label: 'נסה שוב', emoji: '🔄', onTap: onRetry),
+        ],
+      ),
+    );
+  }
+}
+
 class _OptionsArea extends StatelessWidget {
   const _OptionsArea({
     required this.options,
     required this.controller,
+    required this.lowEnergy,
+    required this.partnerMode,
+    required this.partnerArmed,
+    required this.onPartnerArmed,
     required this.onChip,
     required this.onSubmit,
   });
 
   final List<ChipOption> options;
   final TextEditingController controller;
-  final ValueChanged<String> onChip;
+  final bool lowEnergy;
+  final bool partnerMode;
+  final bool partnerArmed;
+  final ValueChanged<bool> onPartnerArmed;
+  final void Function(String label, int index) onChip;
   final ValueChanged<String> onSubmit;
 
   @override
@@ -228,55 +478,73 @@ class _OptionsArea extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
       child: Column(
         children: [
+          if (partnerMode)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: FilterChip(
+                label: const Text('הדגמה של השותף'),
+                avatar: const Icon(Icons.record_voice_over_outlined, size: 18),
+                selected: partnerArmed,
+                onSelected: onPartnerArmed,
+              ),
+            ),
+          if (partnerMode) const SizedBox(height: 8),
           Wrap(
             spacing: 10,
             runSpacing: 10,
             alignment: WrapAlignment.center,
-            children: options
-                .map((o) => _Chip(option: o, onTap: () => onChip(o.label)))
-                .toList(),
-          ),
-          const SizedBox(height: 12),
-          Row(
             children: [
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: onSubmit,
-                  style: const TextStyle(fontSize: 18),
-                  decoration: InputDecoration(
-                    hintText: 'או כתוב/י בעצמך…',
-                    filled: true,
-                    fillColor: AppColors.surface,
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(color: AppColors.border),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(color: AppColors.border),
-                    ),
-                  ),
+              for (var i = 0; i < options.length; i++)
+                _Chip(
+                  option: options[i],
+                  big: lowEnergy,
+                  onTap: () => onChip(options[i].label, i),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Material(
-                color: AppColors.primary,
-                shape: const CircleBorder(),
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: () => onSubmit(controller.text),
-                  child: const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: Icon(Icons.send_rounded, color: Colors.white),
-                  ),
-                ),
-              ),
             ],
           ),
+          if (!lowEnergy) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: onSubmit,
+                    style: const TextStyle(fontSize: 18),
+                    decoration: InputDecoration(
+                      hintText: 'או כתוב/י בעצמך…',
+                      filled: true,
+                      fillColor: AppColors.surface,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: AppColors.border),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: AppColors.border),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Material(
+                  color: AppColors.primary,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => onSubmit(controller.text),
+                    child: const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Icon(Icons.send_rounded, color: Colors.white),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -284,13 +552,19 @@ class _OptionsArea extends StatelessWidget {
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip({required this.option, required this.onTap});
+  const _Chip({required this.option, required this.onTap, this.big = false});
 
   final ChipOption option;
   final VoidCallback onTap;
+  final bool big;
 
   @override
   Widget build(BuildContext context) {
+    final emojiSize = big ? 34.0 : 24.0;
+    final fontSize = big ? 24.0 : 18.0;
+    final pad = big
+        ? const EdgeInsets.symmetric(horizontal: 26, vertical: 20)
+        : const EdgeInsets.symmetric(horizontal: 16, vertical: 12);
     return Material(
       color: AppColors.primary.withValues(alpha: 0.12),
       borderRadius: BorderRadius.circular(16),
@@ -298,7 +572,7 @@ class _Chip extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: pad,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: AppColors.primary, width: 2),
@@ -306,12 +580,12 @@ class _Chip extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(option.emoji, style: const TextStyle(fontSize: 24)),
+              Text(option.emoji, style: TextStyle(fontSize: emojiSize)),
               const SizedBox(width: 8),
               Text(
                 option.label,
-                style: const TextStyle(
-                  fontSize: 18,
+                style: TextStyle(
+                  fontSize: fontSize,
                   fontWeight: FontWeight.w700,
                   color: AppColors.primaryDark,
                 ),

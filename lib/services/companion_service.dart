@@ -6,8 +6,18 @@ abstract class CompanionService {
   /// The very first message, before the user has said anything.
   CompanionTurn opening();
 
-  /// One turn: given the user's latest input, return the companion's response.
-  Future<CompanionTurn> turn(String userInput);
+  /// One turn: given the latest input, return the companion's response.
+  ///
+  /// [creationSoFar] is the accumulated creation text (the service is
+  /// stateless about it — the screen owns the creation).
+  /// [source] marks a partner's modelling tap so it is never treated as the
+  /// user's own choice. [lowEnergy] asks for the reduced, calmer variant.
+  Future<CompanionTurn> turn(
+    String userInput, {
+    String creationSoFar = '',
+    InputSource source = InputSource.user,
+    bool lowEnergy = false,
+  });
 }
 
 /// Offline, scripted companion for the demo. No API key, no network — runs
@@ -31,7 +41,12 @@ class MockCompanionService implements CompanionService {
       );
 
   @override
-  Future<CompanionTurn> turn(String userInput) async {
+  Future<CompanionTurn> turn(
+    String userInput, {
+    String creationSoFar = '',
+    InputSource source = InputSource.user,
+    bool lowEnergy = false,
+  }) async {
     // Small delay so the demo feels like a real response.
     await Future<void>.delayed(const Duration(milliseconds: 450));
     final input = userInput.trim();

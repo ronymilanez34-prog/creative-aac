@@ -32,31 +32,43 @@ flutter run
 ```
 lib/
 ├── main.dart                     # נקודת כניסה, ערכת נושא, RTL
+├── config.dart                   # חיבור ל-backend (‎--dart-define); ריק = אופליין
 ├── theme.dart                    # פלטת צבעים רגועה
-├── models/story.dart             # Choice / StorySpec / Story / StoryPage
+├── models/                       # story.dart · companion.dart (חוזה התור + מקור)
 ├── data/choices.dart             # הגיבורים, המקומות, האירועים — לעריכה כאן
 ├── services/
-│   ├── story_generator.dart      # הלב ה"יצרני" — Local היום, AI מחר
-│   ├── speech.dart               # הקראה קולית בעברית
-│   └── story_store.dart          # שמירת סיפורים במכשיר
+│   ├── companion_service.dart          # ממשק בן-הלוויה + דמו אופליין
+│   ├── claude_companion_service.dart   # החיבור האמיתי ל-Claude (דרך ה-backend)
+│   ├── interaction_log.dart            # לוג מדידה על המכשיר (לפיילוט)
+│   ├── story_generator.dart            # אשף הסיפורים — Local היום
+│   ├── speech.dart                     # הקראה קולית בעברית
+│   └── story_store.dart                # שמירת סיפורים במכשיר
 ├── screens/
 │   ├── home_screen.dart          # מסך פתיחה
+│   ├── companion_screen.dart     # לולאת היצירה (צ'יפים, מצב שותף, אנרגיה נמוכה)
 │   ├── build/build_story_screen.dart  # אשף בניית הסיפור (3 שלבים)
 │   ├── story_view_screen.dart    # קריאה + הקראה, עמוד-עמוד
 │   └── my_stories_screen.dart    # סיפורים שמורים
-└── widgets/                      # BigButton, ChoiceCard
+└── widgets/                      # BigButton, ChoiceCard, QuickBar (פס חירום)
 ```
 
-## הצעד היצרני הבא: חיבור AI אמיתי
+## חיבור ה-AI האמיתי
 
-כרגע `LocalTemplateStoryGenerator` בונה סיפור לוקאלית (עובד בלי הגדרות).
-המעבר לתת״ח *יצרני* מלא = החלפתו ב-`ClaudeStoryGenerator`:
+בן-הלוויה מחובר ל-Claude דרך Cloud Function — **המפתח לעולם לא באפליקציה**:
 
-- **אל תשים מפתח API באפליקציה.** נתב את הבקשות דרך backend קטן (למשל Cloud
-  Function) שמחזיק את המפתח בצד השרת.
-- בקש מה-AI סיפור קצר, חם ומותאם-גיל, מחולק ל"עמודים" קצרים, שמוחזר כ-JSON
-  מובנה כדי שימופה נקי ל-`StoryPage`.
-- הממשק (`StoryGenerator`) כבר מוכן — אף מסך לא ישתנה.
+1. פריסה: `cd functions && npm install && firebase deploy --only functions`
+   (מגדירים את הסודות `ANTHROPIC_API_KEY` ו-`APP_KEY` ב-Secret Manager).
+2. הרצת האפליקציה עם החיבור:
+
+   ```bash
+   flutter run \
+     --dart-define=COMPANION_ENDPOINT=https://europe-west1-<project>.cloudfunctions.net/companionTurnHttp \
+     --dart-define=COMPANION_APP_KEY=<APP_KEY>
+   ```
+
+בלי ההגדרות האלה האפליקציה רצה במצב אופליין מלא (דמו מתוסרט + אשף לוקאלי) —
+תמיד יש רצפה שעובדת בלי רשת. הפרומפט המלא והחוזה:
+[`docs/prompts/companion_system_prompt.md`](docs/prompts/companion_system_prompt.md).
 
 ## מפת דרכים (רעיונות)
 

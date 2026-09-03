@@ -26,6 +26,11 @@ class ConfirmPrompt {
       );
 }
 
+/// Who produced a piece of input this turn. A partner's modelling tap is never
+/// the user's own expression — the distinction is kept end-to-end (prompt,
+/// log, provenance).
+enum InputSource { user, partner }
+
 class CompanionTurn {
   const CompanionTurn({
     required this.say,
@@ -33,6 +38,8 @@ class CompanionTurn {
     this.needsConfirmation = false,
     this.confirm,
     this.options = const [],
+    this.partnerTip,
+    this.questions = const [],
     this.safeguard = false,
   });
 
@@ -50,6 +57,14 @@ class CompanionTurn {
   /// 3-4 tappable next options.
   final List<ChipOption> options;
 
+  /// Short coaching hint for a communication partner sitting alongside —
+  /// shown only in partner mode, never to the user.
+  final String? partnerTip;
+
+  /// 1-2 simple comprehension questions about [creationUpdate], kept for the
+  /// re-reading mode of the finished creation.
+  final List<String> questions;
+
   /// When true, the app alerts a human (facilitator/clinician) and does not
   /// continue as usual.
   final bool safeguard;
@@ -65,6 +80,30 @@ class CompanionTurn {
             .whereType<Map<String, dynamic>>()
             .map(ChipOption.fromJson)
             .toList(),
+        partnerTip: j['partner_tip']?.toString(),
+        questions: (j['questions'] as List? ?? const [])
+            .map((e) => e.toString())
+            .where((s) => s.trim().isNotEmpty)
+            .toList(),
         safeguard: j['safeguard'] == true,
       );
+}
+
+/// One piece of the growing creation, with provenance: the AI text plus the
+/// user input that triggered it. This is the raw material for "show what I
+/// chose" views and for demonstrable authorship.
+class CreationPiece {
+  const CreationPiece({
+    required this.text,
+    required this.userInput,
+    required this.source,
+  });
+
+  /// The text the AI appended to the creation.
+  final String text;
+
+  /// What the user (or partner) actually selected/typed this turn.
+  final String userInput;
+
+  final InputSource source;
 }

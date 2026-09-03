@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../config.dart';
+import '../services/claude_companion_service.dart';
 import '../services/companion_service.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
@@ -11,6 +13,16 @@ import 'my_stories_screen.dart';
 /// to saved stories. Deliberately sparse to keep it predictable and low-load.
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
+
+  /// Real Claude companion when a backend is configured (see lib/config.dart),
+  /// otherwise the offline scripted demo — the app always runs.
+  CompanionService _companionService() => kCompanionEndpoint.isEmpty
+      ? MockCompanionService()
+      : ClaudeCompanionService(
+          endpoint: kCompanionEndpoint,
+          appKey: kCompanionAppKey,
+          profileText: kDefaultProfile,
+        );
 
   @override
   Widget build(BuildContext context) {
@@ -48,7 +60,7 @@ class HomeScreen extends StatelessWidget {
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) =>
-                            CompanionScreen(service: MockCompanionService()),
+                            CompanionScreen(service: _companionService()),
                       ),
                     ),
                   ),
