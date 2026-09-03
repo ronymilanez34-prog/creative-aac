@@ -136,7 +136,12 @@ function buildSystemPrompt({ profile, creationSoFar, lowEnergy, paceHint }) {
     creationSoFar && String(creationSoFar).trim() ? String(creationSoFar).trim() : "עדיין ריק — זו ההתחלה.";
 
   const lowEnergyBlock = lowEnergy ? `${LOW_ENERGY_NOTE}\n\n` : "";
-  const paceBlock = PACE_NOTES[paceHint] ? `${PACE_NOTES[paceHint]}\n\n` : "";
+  // Own-property check: a hostile paceHint like "constructor" must not
+  // resolve through the prototype chain into the prompt.
+  const paceNote = Object.prototype.hasOwnProperty.call(PACE_NOTES, paceHint)
+    ? PACE_NOTES[paceHint]
+    : "";
+  const paceBlock = paceNote ? `${paceNote}\n\n` : "";
 
   return [
     { type: "text", text: INSTRUCTIONS },

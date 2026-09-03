@@ -93,9 +93,13 @@ void main() {
     expect(second.indexWhere((o) => o.label == 'כלב'), dogSlot);
     expect(second.map((o) => o.label).toSet(), {'ירח', 'כלב', 'ים'});
 
-    // A remembered slot beyond the current count falls back gracefully.
+    // A remembered slot beyond the current count falls back gracefully —
+    // and the original slot survives the shrink (low-energy turns must not
+    // erase long-practiced positions).
     final shrunk = slots.arrange(const [dog]);
     expect(shrunk.single.label, 'כלב');
+    final restored = slots.arrange(const [moon, dog, sea]);
+    expect(restored.indexWhere((o) => o.label == 'כלב'), dogSlot);
   });
 
   test('interaction log surfaces repeated free-text as desire paths', () async {

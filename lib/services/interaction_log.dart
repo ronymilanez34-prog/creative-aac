@@ -86,19 +86,37 @@ class InteractionLog {
     return out;
   }
 
+  /// One pass over the log for everything the clinician summary needs —
+  /// the single source of truth for these aggregations.
+  Future<UsageStats> usageStats() async {
+    var selections = 0;
+    var quickFires = 0;
+    final positionCounts = <int, int>{};
+    for (final e in await entries()) {
+      if (e['type'] == 'selection') {
+        selections++;
+        if (e['kind'] == 'chip') {
+          final i = e['index'];
+          if (i is int && i >= 0) {
+            positionCounts[i] = (positionCounts[i] ?? 0) + 1;
+          }
+        }
+      } else if (e['type'] == 'quickfire') {
+        quickFires++;
+      }
+    }
+    return UsageStats(
+      selections: selections,
+      quickFires: quickFires,
+      positionCounts: positionCounts,
+    );
+  }
+
   /// Chip selections per screen position. A heavily skewed distribution is
   /// the position-bias alert for the clinician: choices may be tracking
   /// screen location, not content.
-  Future<Map<int, int>> positionCounts() async {
-    final counts = <int, int>{};
-    for (final e in await entries()) {
-      if (e['type'] == 'selection' && e['kind'] == 'chip') {
-        final i = e['index'];
-        if (i is int && i >= 0) counts[i] = (counts[i] ?? 0) + 1;
-      }
-    }
-    return counts;
-  }
+  Future<Map<int, int>> positionCounts() async =>
+      (await usageStats()).positionCounts;
 
   /// Free-text inputs the user typed, counted — the "desire paths" signal:
   /// a phrase typed again and again is a path worn in the grass, a candidate
@@ -123,4 +141,17 @@ class InteractionLog {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key);
   }
+}
+
+/// Aggregated usage numbers for the clinician summary.
+class UsageStats {
+  const UsageStats({
+    required this.selections,
+    required this.quickFires,
+    required this.positionCounts,
+  });
+
+  final int selections;
+  final int quickFires;
+  final Map<int, int> positionCounts;
 }

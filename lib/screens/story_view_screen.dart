@@ -89,11 +89,18 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
               itemBuilder: (context, i) {
                 final p = pages[i];
                 final showQuestions = _reReading && p.questions.isNotEmpty;
-                return SingleChildScrollView(
-                  padding: const EdgeInsets.all(28),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
+                // Scrollable for long pages/questions, but constrained to the
+                // viewport height so short pages stay vertically centered.
+                return LayoutBuilder(
+                  builder: (context, constraints) => SingleChildScrollView(
+                    child: ConstrainedBox(
+                      constraints:
+                          BoxConstraints(minHeight: constraints.maxHeight),
+                      child: Padding(
+                        padding: const EdgeInsets.all(28),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
                       Text(p.emoji,
                           style: TextStyle(fontSize: showQuestions ? 72 : 120)),
                       const SizedBox(height: 24),
@@ -125,8 +132,11 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
                             ),
                           ),
                         ),
-                      ],
-                    ],
+                          ],
+                        ],
+                        ),
+                      ),
+                    ),
                   ),
                 );
               },

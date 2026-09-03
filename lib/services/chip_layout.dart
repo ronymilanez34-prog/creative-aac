@@ -34,7 +34,10 @@ class ChipSlots {
       }
       if (idx >= n) break;
       placed[idx] = o;
-      _slotByLabel[o.label] = idx;
+      // Remember a slot only on first-ever appearance. A known label that
+      // landed here because the option set shrank (low-energy turns, 3-chip
+      // sets) keeps its original slot for when the full set returns.
+      _slotByLabel.putIfAbsent(o.label, () => idx);
     }
 
     return placed.whereType<ChipOption>().toList();

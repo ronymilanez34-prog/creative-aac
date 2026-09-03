@@ -115,10 +115,12 @@ class UserProfile {
   String encode() => jsonEncode(toJson());
 
   factory UserProfile.decode(String raw) {
+    // A corrupt or wrong-typed stored profile must never take down the main
+    // creation flow — any failure falls back to an empty profile.
     try {
       final j = jsonDecode(raw);
       if (j is Map<String, dynamic>) return UserProfile.fromJson(j);
-    } on FormatException {
+    } catch (_) {
       // fall through to empty profile
     }
     return UserProfile();

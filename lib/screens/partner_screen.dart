@@ -35,9 +35,16 @@ class _PartnerScreenState extends State<PartnerScreen> {
   bool _loaded = false;
   bool _saved = false;
 
+  // Log reads are held in state so rebuilds (typing, saving, editing
+  // scripts) don't re-decode the whole stored log on every frame.
+  late Future<Map<String, int>> _desireFuture;
+  late Future<UsageStats> _usageFuture;
+
   @override
   void initState() {
     super.initState();
+    _desireFuture = _log.freeTextCounts();
+    _usageFuture = _log.usageStats();
     _load();
   }
 
@@ -241,7 +248,7 @@ class _PartnerScreenState extends State<PartnerScreen> {
                   ),
                   const SizedBox(height: 8),
                   FutureBuilder<Map<String, int>>(
-                    future: _log.freeTextCounts(),
+                    future: _desireFuture,
                     builder: (context, snap) {
                       final counts = snap.data ?? const {};
                       final repeated = counts.entries
@@ -279,7 +286,7 @@ class _PartnerScreenState extends State<PartnerScreen> {
                   ),
                   const SizedBox(height: 20),
                   const _SectionTitle('נתוני שימוש (לקלינאית)'),
-                  _UsageSummary(log: _log),
+                  _UsageSummary(future: _usageFuture),
                   const SizedBox(height: 8),
                   BigButton(
                     label: 'העתקת הלוג המלא',
@@ -350,28 +357,18 @@ class _Field extends StatelessWidget {
 /// count, and the position-of-selection distribution (the position-bias
 /// signal — choices tracking screen location rather than content).
 class _UsageSummary extends StatelessWidget {
-  const _UsageSummary({required this.log});
+  const _UsageSummary({required this.future});
 
-  final InteractionLog log;
+  final Future<UsageStats> future;
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: log.entries(),
+    return FutureBuilder<UsageStats>(
+      future: future,
       builder: (context, snap) {
         if (!snap.hasData) return const SizedBox(height: 40);
-        final entries = snap.data!;
-        final selections =
-            entries.where((e) => e['type'] == 'selection').length;
-        final quickFires =
-            entries.where((e) => e['type'] == 'quickfire').length;
-        final counts = <int, int>{};
-        for (final e in entries) {
-          if (e['type'] == 'selection' && e['kind'] == 'chip') {
-            final i = e['index'];
-            if (i is int && i >= 0) counts[i] = (counts[i] ?? 0) + 1;
-          }
-        }
+        final stats = snap.data!;
+        final counts = stats.positionCounts;
         final positions = (counts.keys.toList()..sort())
             .map((k) => 'מיקום ${k + 1}: ${counts[k]}')
             .join(' · ');
@@ -384,7 +381,7 @@ class _UsageSummary extends StatelessWidget {
             border: Border.all(color: AppColors.border),
           ),
           child: Text(
-            'בחירות: $selections · לחיצות חירום: $quickFires\n'
+            'בחירות: ${stats.selections} · לחיצות חירום: ${stats.quickFires}\n'
             'התפלגות מיקומי בחירה: ${positions.isEmpty ? 'אין עדיין' : positions}\n'
             'התפלגות מוטה מאוד למיקום אחד = ייתכן שהבחירה עוקבת אחרי מקום '
             'על המסך ולא אחרי תוכן.',
