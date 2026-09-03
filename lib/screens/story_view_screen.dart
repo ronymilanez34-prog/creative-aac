@@ -24,6 +24,14 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
   int _page = 0;
   bool _saved = false;
 
+  /// Shared re-reading mode: shows each page's saved questions as
+  /// conversation prompts (the partner asks, waits — every answer counts).
+  /// Available only when the story carries questions.
+  bool _reReading = false;
+
+  bool get _hasQuestions =>
+      widget.story.pages.any((p) => p.questions.isNotEmpty);
+
   @override
   void dispose() {
     _controller.dispose();
@@ -56,6 +64,14 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
       appBar: AppBar(
         title: Text(widget.story.title),
         actions: [
+          if (_hasQuestions)
+            IconButton(
+              tooltip: _reReading ? 'סגירת קריאה חוזרת' : 'קריאה חוזרת (עם שאלות)',
+              icon: Icon(
+                _reReading ? Icons.menu_book : Icons.menu_book_outlined,
+              ),
+              onPressed: () => setState(() => _reReading = !_reReading),
+            ),
           IconButton(
             tooltip: 'הקרא את כל הסיפור',
             icon: const Icon(Icons.record_voice_over),
@@ -72,13 +88,15 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
               itemCount: pages.length,
               itemBuilder: (context, i) {
                 final p = pages[i];
-                return Padding(
+                final showQuestions = _reReading && p.questions.isNotEmpty;
+                return SingleChildScrollView(
                   padding: const EdgeInsets.all(28),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(p.emoji, style: const TextStyle(fontSize: 120)),
-                      const SizedBox(height: 32),
+                      Text(p.emoji,
+                          style: TextStyle(fontSize: showQuestions ? 72 : 120)),
+                      const SizedBox(height: 24),
                       Text(
                         p.text,
                         textAlign: TextAlign.center,
@@ -89,6 +107,25 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
                           color: AppColors.text,
                         ),
                       ),
+                      if (showQuestions) ...[
+                        const SizedBox(height: 24),
+                        for (final q in p.questions)
+                          _QuestionCard(
+                            question: q,
+                            onSpeak: () => _speech.speak(q),
+                          ),
+                        const Padding(
+                          padding: EdgeInsets.only(top: 6),
+                          child: Text(
+                            'שאלו, חכו בסבלנות — וכל תשובה היא תשובה טובה.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppColors.textSoft,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 );
@@ -156,6 +193,45 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuestionCard extends StatelessWidget {
+  const _QuestionCard({required this.question, required this.onSpeak});
+
+  final String question;
+  final VoidCallback onSpeak;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              question,
+              style: const TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+                color: AppColors.text,
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'הקרא את השאלה',
+            icon: const Icon(Icons.volume_up_rounded, color: AppColors.accent),
+            onPressed: onSpeak,
           ),
         ],
       ),

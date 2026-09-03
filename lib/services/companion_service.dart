@@ -67,6 +67,7 @@ class MockCompanionService implements CompanionService {
         return CompanionTurn(
           say: 'וואו, $input! נשמע התחלה מעולה. איפה הסיפור קורה?',
           creationUpdate: 'היה היה $input.',
+          questions: const ['מי הגיבור של הסיפור?'],
           options: const [
             ChipOption(emoji: '🌳', label: 'ביער'),
             ChipOption(emoji: '🏠', label: 'בבית'),
@@ -90,6 +91,7 @@ class MockCompanionService implements CompanionService {
         return CompanionTurn(
           say: 'מושלם, הבנתי. ומי עוד נמצא שם איתו?',
           creationUpdate: 'הוא הגיע $input, וזה היה בדיוק המקום בשבילו.',
+          questions: const ['לאן הוא הגיע?'],
           options: const [
             ChipOption(emoji: '👧', label: 'חברה'),
             ChipOption(emoji: '👵', label: 'סבתא'),

@@ -207,7 +207,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
       id: now.microsecondsSinceEpoch.toString(),
       title: firstWords.isEmpty ? 'יצירה' : firstWords,
       pages: [
-        for (final p in _creation) StoryPage(text: p.text, emoji: '✨'),
+        for (final p in _creation)
+          StoryPage(text: p.text, emoji: '✨', questions: p.questions),
       ],
       createdAtMs: now.millisecondsSinceEpoch,
     );

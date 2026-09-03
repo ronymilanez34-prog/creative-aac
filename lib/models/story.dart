@@ -27,15 +27,34 @@ class StorySpec {
 }
 
 class StoryPage {
-  const StoryPage({required this.text, required this.emoji});
+  const StoryPage({
+    required this.text,
+    required this.emoji,
+    this.questions = const [],
+  });
 
   final String text;
   final String emoji;
 
-  Map<String, dynamic> toJson() => {'text': text, 'emoji': emoji};
+  /// Simple comprehension questions about this page, generated at creation
+  /// time — the material for the shared re-reading mode (the partner asks,
+  /// waits, and every answer is a good answer).
+  final List<String> questions;
 
-  factory StoryPage.fromJson(Map<String, dynamic> j) =>
-      StoryPage(text: j['text'] as String, emoji: j['emoji'] as String);
+  Map<String, dynamic> toJson() => {
+        'text': text,
+        'emoji': emoji,
+        if (questions.isNotEmpty) 'questions': questions,
+      };
+
+  factory StoryPage.fromJson(Map<String, dynamic> j) => StoryPage(
+        text: j['text'] as String,
+        emoji: j['emoji'] as String,
+        questions: (j['questions'] as List? ?? const [])
+            .map((e) => e.toString())
+            .where((s) => s.trim().isNotEmpty)
+            .toList(),
+      );
 }
 
 class Story {

@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:creative_aac/main.dart';
 import 'package:creative_aac/models/profile.dart';
+import 'package:creative_aac/models/story.dart';
 import 'package:creative_aac/screens/partner_screen.dart';
 
 void main() {
@@ -57,5 +58,19 @@ void main() {
 
     expect(UserProfile().toPromptText(), isEmpty);
     expect(UserProfile.decode('not json').isEmpty, isTrue);
+  });
+
+  test('story pages round-trip re-reading questions', () {
+    const page = StoryPage(
+      text: 'היה היה דרקון.',
+      emoji: '🐉',
+      questions: ['מי הגיבור?'],
+    );
+    final restored = StoryPage.fromJson(page.toJson());
+    expect(restored.questions, ['מי הגיבור?']);
+
+    // Older saved stories have no questions field — must load cleanly.
+    final legacy = StoryPage.fromJson(const {'text': 'א', 'emoji': '✨'});
+    expect(legacy.questions, isEmpty);
   });
 }
