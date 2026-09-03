@@ -34,18 +34,20 @@ lib/
 ├── main.dart                     # נקודת כניסה, ערכת נושא, RTL
 ├── config.dart                   # חיבור ל-backend (‎--dart-define); ריק = אופליין
 ├── theme.dart                    # פלטת צבעים רגועה
-├── models/                       # story.dart · companion.dart (חוזה התור + מקור)
+├── models/                       # story.dart · companion.dart (חוזה+מקור) · profile.dart
 ├── data/choices.dart             # הגיבורים, המקומות, האירועים — לעריכה כאן
 ├── services/
 │   ├── companion_service.dart          # ממשק בן-הלוויה + דמו אופליין
 │   ├── claude_companion_service.dart   # החיבור האמיתי ל-Claude (דרך ה-backend)
 │   ├── interaction_log.dart            # לוג מדידה על המכשיר (לפיילוט)
+│   ├── profile_store.dart              # הפרופיל האישי — על המכשיר בלבד
 │   ├── story_generator.dart            # אשף הסיפורים — Local היום
 │   ├── speech.dart                     # הקראה קולית בעברית
 │   └── story_store.dart                # שמירת סיפורים במכשיר
 ├── screens/
 │   ├── home_screen.dart          # מסך פתיחה
 │   ├── companion_screen.dart     # לולאת היצירה (צ'יפים, מצב שותף, אנרגיה נמוכה)
+│   ├── partner_screen.dart       # מצב מלווה: עריכת פרופיל, סקריפטים, נתוני שימוש
 │   ├── build/build_story_screen.dart  # אשף בניית הסיפור (3 שלבים)
 │   ├── story_view_screen.dart    # קריאה + הקראה, עמוד-עמוד
 │   └── my_stories_screen.dart    # סיפורים שמורים

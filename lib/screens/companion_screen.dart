@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/companion.dart';
+import '../models/story.dart';
 import '../services/companion_service.dart';
 import '../services/interaction_log.dart';
 import '../services/speech.dart';
+import '../services/story_store.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
 import '../widgets/quick_bar.dart';
@@ -194,6 +196,28 @@ class _CompanionScreenState extends State<CompanionScreen> {
     }
   }
 
+  /// Saves the creation so far into "my stories" — creations must never
+  /// simply vanish; a finished piece is something to revisit and show.
+  Future<void> _saveCreation() async {
+    if (_creation.isEmpty) return;
+    final now = DateTime.now();
+    final firstWords =
+        _creation.first.text.split(RegExp(r'\s+')).take(4).join(' ');
+    final story = Story(
+      id: now.microsecondsSinceEpoch.toString(),
+      title: firstWords.isEmpty ? 'יצירה' : firstWords,
+      pages: [
+        for (final p in _creation) StoryPage(text: p.text, emoji: '✨'),
+      ],
+      createdAtMs: now.millisecondsSinceEpoch,
+    );
+    await StoryStore().save(story);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('נשמר ב"הסיפורים שלי" 📚')),
+    );
+  }
+
   void _onQuickFire(QuickFire q) {
     // Local and immediate: speak first, everything else after.
     _speech.speak(q.spoken);
@@ -229,6 +253,11 @@ class _CompanionScreenState extends State<CompanionScreen> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         actions: [
+          IconButton(
+            tooltip: 'שמירת היצירה',
+            icon: const Icon(Icons.bookmark_add_outlined),
+            onPressed: _creation.isEmpty ? null : _saveCreation,
+          ),
           IconButton(
             tooltip: _lowEnergy ? 'חזרה למצב מלא' : 'מצב אנרגיה נמוכה',
             icon: Icon(
