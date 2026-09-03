@@ -96,8 +96,17 @@ const LOW_ENERGY_NOTE = `# מצב אנרגיה נמוכה — כרגע פעיל
 בלי שאלות מורכבות, בלי אישורים אלא אם הכרחי. רוגע מעל הכול.`;
 
 /**
- * Builds the `system` string: stable instructions + the dynamic profile and
- * current creation state.
+ * Builds the `system` blocks for the Messages API, structured for prompt
+ * caching: the stable prefix (instructions + profile) carries a
+ * `cache_control` breakpoint, and everything that changes per turn (the
+ * creation so far, the low-energy note) comes after it, so a turn never
+ * invalidates the cached prefix.
+ *
+ * Honest note on economics: Haiku 4.5's minimum cacheable prefix is 4096
+ * tokens; below that the marker is a silent no-op (no error, no charge).
+ * Today's instructions alone are under it — caching starts paying for
+ * itself automatically once real user profiles (vocabulary, scripts,
+ * preferences) fatten the prefix. Cache reads then cost ~10% of input.
  */
 function buildSystemPrompt({ profile, creationSoFar, lowEnergy }) {
   const profileText =
@@ -105,15 +114,20 @@ function buildSystemPrompt({ profile, creationSoFar, lowEnergy }) {
   const creationText =
     creationSoFar && String(creationSoFar).trim() ? String(creationSoFar).trim() : "עדיין ריק — זו ההתחלה.";
 
-  const lowEnergyBlock = lowEnergy ? `\n\n${LOW_ENERGY_NOTE}` : "";
+  const lowEnergyBlock = lowEnergy ? `${LOW_ENERGY_NOTE}\n\n` : "";
 
-  return `${INSTRUCTIONS}${lowEnergyBlock}
-
-# הפרופיל של המשתמש/ת
-${profileText}
-
-# היצירה עד עכשיו
-${creationText}`;
+  return [
+    { type: "text", text: INSTRUCTIONS },
+    {
+      type: "text",
+      text: `# הפרופיל של המשתמש/ת\n${profileText}`,
+      cache_control: { type: "ephemeral" },
+    },
+    {
+      type: "text",
+      text: `${lowEnergyBlock}# היצירה עד עכשיו\n${creationText}`,
+    },
+  ];
 }
 
 module.exports = { buildSystemPrompt };
