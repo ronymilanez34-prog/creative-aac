@@ -1,7 +1,9 @@
 # Flutter/Dart/Pub
 .dart_tool/
 .packages
-build/
+# Only the top-level build output — NOT lib/screens/build/ (a bare "build/"
+# pattern silently swallowed the story wizard screen once already).
+/build/
 .flutter-plugins
 .flutter-plugins-dependencies
 pubspec.lock
