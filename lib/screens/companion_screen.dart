@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/companion.dart';
 import '../models/story.dart';
+import '../services/chip_layout.dart';
 import '../services/companion_service.dart';
 import '../services/interaction_log.dart';
 import '../services/speech.dart';
@@ -40,9 +41,10 @@ class _CompanionScreenState extends State<CompanionScreen> {
   final List<CreationPiece> _creation = [];
   late CompanionTurn _turn;
 
-  /// The chips in the order actually shown. Reshuffled every turn so the
-  /// selection log can detect position bias (choices tracking screen location
-  /// rather than content).
+  /// The chips in the order actually shown. A label seen before keeps its
+  /// slot (motor consistency); first appearances are randomized, which keeps
+  /// the position-bias signal alive. See [ChipSlots].
+  final ChipSlots _chipSlots = ChipSlots();
   List<ChipOption> _displayOptions = const [];
   DateTime _optionsShownAt = DateTime.now();
 
@@ -70,7 +72,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
   void initState() {
     super.initState();
     _turn = widget.service.opening();
-    _displayOptions = List<ChipOption>.of(_turn.options)..shuffle();
+    _displayOptions = _chipSlots.arrange(_turn.options);
     _optionsShownAt = DateTime.now();
     // Speak the opening after the first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) => _speak(_turn.say));
@@ -108,7 +110,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
   void _applyTurn(CompanionTurn turn, {bool speak = true}) {
     setState(() {
       _turn = turn;
-      _displayOptions = List<ChipOption>.of(turn.options)..shuffle();
+      _displayOptions = _chipSlots.arrange(turn.options);
       _optionsShownAt = DateTime.now();
       _failed = false;
       _busy = false;

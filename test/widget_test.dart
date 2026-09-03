@@ -3,9 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:creative_aac/main.dart';
+import 'package:creative_aac/models/companion.dart';
 import 'package:creative_aac/models/profile.dart';
 import 'package:creative_aac/models/story.dart';
 import 'package:creative_aac/screens/partner_screen.dart';
+import 'package:creative_aac/services/chip_layout.dart';
 
 void main() {
   testWidgets('home screen shows the calm landing actions', (tester) async {
@@ -72,5 +74,26 @@ void main() {
     // Older saved stories have no questions field — must load cleanly.
     final legacy = StoryPage.fromJson(const {'text': 'א', 'emoji': '✨'});
     expect(legacy.questions, isEmpty);
+  });
+
+  test('chip slots persist positions for repeated labels', () {
+    const dog = ChipOption(emoji: '🐶', label: 'כלב');
+    const sea = ChipOption(emoji: '🌊', label: 'ים');
+    const cake = ChipOption(emoji: '🎂', label: 'עוגה');
+    const moon = ChipOption(emoji: '🌙', label: 'ירח');
+
+    final slots = ChipSlots();
+    final first = slots.arrange(const [dog, sea, cake]);
+    expect(first, hasLength(3));
+    final dogSlot = first.indexWhere((o) => o.label == 'כלב');
+
+    // The familiar chip keeps its slot on later turns, whatever else shows.
+    final second = slots.arrange(const [moon, dog, sea]);
+    expect(second.indexWhere((o) => o.label == 'כלב'), dogSlot);
+    expect(second.map((o) => o.label).toSet(), {'ירח', 'כלב', 'ים'});
+
+    // A remembered slot beyond the current count falls back gracefully.
+    final shrunk = slots.arrange(const [dog]);
+    expect(shrunk.single.label, 'כלב');
   });
 }
