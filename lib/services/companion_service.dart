@@ -18,6 +18,9 @@ abstract class CompanionService {
     InputSource source = InputSource.user,
     bool lowEnergy = false,
   });
+
+  /// Release any held resources (network clients etc.).
+  void dispose() {}
 }
 
 /// Offline, scripted companion for the demo. No API key, no network — runs
@@ -28,6 +31,9 @@ abstract class CompanionService {
 /// words, and the "confirmation, not silent decision" mechanic.
 class MockCompanionService implements CompanionService {
   int _step = 0;
+
+  @override
+  void dispose() {}
 
   @override
   CompanionTurn opening() => const CompanionTurn(

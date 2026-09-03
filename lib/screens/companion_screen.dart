@@ -75,12 +75,18 @@ class _CompanionScreenState extends State<CompanionScreen> {
     _speech.dispose();
     _input.dispose();
     _creationScroll.dispose();
+    widget.service.dispose();
     super.dispose();
   }
 
   void _speak(String text) => _speech.speak(text);
 
   String get _creationText => _creation.map((p) => p.text).join(' ');
+
+  /// The chips actually on screen right now (low-energy shows only 2) —
+  /// the list the log must record, not the full generated set.
+  List<ChipOption> get _visibleOptions =>
+      _lowEnergy ? _displayOptions.take(2).toList() : _displayOptions;
 
   void _applyTurn(CompanionTurn turn, {bool speak = true}) {
     setState(() {
@@ -97,6 +103,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
     String text, {
     required String kind, // 'chip' | 'text' | 'confirm'
     int chosenIndex = -1,
+    List<String>? shownOptions,
   }) async {
     final t = text.trim();
     if (t.isEmpty || _busy) return;
@@ -106,7 +113,10 @@ class _CompanionScreenState extends State<CompanionScreen> {
     final latency =
         DateTime.now().difference(_optionsShownAt).inMilliseconds;
     unawaited(_log.logSelection(
-      shownOptions: _displayOptions.map((o) => o.label).toList(),
+      // What was actually on screen: the visible chips, or (for a confirm
+      // tap) the confirm options the caller passes in.
+      shownOptions:
+          shownOptions ?? _visibleOptions.map((o) => o.label).toList(),
       chosen: t,
       chosenIndex: chosenIndex,
       kind: kind,
@@ -115,16 +125,28 @@ class _CompanionScreenState extends State<CompanionScreen> {
       latencyMs: latency,
     ));
 
+    setState(() => _partnerArmed = false);
+    await _performTurn(t, source);
+    if (mounted && _failed) _speak('רגע, משהו השתבש. אפשר לנסות שוב.');
+  }
+
+  Future<void> _retry() async {
+    if (_lastInput.isEmpty || _busy) return;
+    await _performTurn(_lastInput, _lastSource);
+  }
+
+  /// The single turn pipeline: call the service, append the creation piece
+  /// (with provenance and re-reading questions), apply the new turn.
+  Future<void> _performTurn(String input, InputSource source) async {
     setState(() {
       _busy = true;
-      _partnerArmed = false;
-      _lastInput = t;
+      _failed = false;
+      _lastInput = input;
       _lastSource = source;
     });
-
     try {
       final next = await widget.service.turn(
-        t,
+        input,
         creationSoFar: _creationText,
         source: source,
         lowEnergy: _lowEnergy,
@@ -135,42 +157,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
           next.creationUpdate!.trim().isNotEmpty) {
         _creation.add(CreationPiece(
           text: next.creationUpdate!.trim(),
-          userInput: t,
+          userInput: input,
           source: source,
-        ));
-      }
-      _applyTurn(next);
-      _scrollCreationToEnd();
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _failed = true;
-      });
-      _speak('רגע, משהו השתבש. אפשר לנסות שוב.');
-    }
-  }
-
-  Future<void> _retry() async {
-    if (_lastInput.isEmpty || _busy) return;
-    setState(() {
-      _busy = true;
-      _failed = false;
-    });
-    try {
-      final next = await widget.service.turn(
-        _lastInput,
-        creationSoFar: _creationText,
-        source: _lastSource,
-        lowEnergy: _lowEnergy,
-      );
-      if (!mounted) return;
-      if (next.creationUpdate != null &&
-          next.creationUpdate!.trim().isNotEmpty) {
-        _creation.add(CreationPiece(
-          text: next.creationUpdate!.trim(),
-          userInput: _lastInput,
-          source: _lastSource,
+          questions: next.questions,
         ));
       }
       _applyTurn(next);
@@ -209,8 +198,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final options =
-        _lowEnergy ? _displayOptions.take(2).toList() : _displayOptions;
+    final options = _visibleOptions;
 
     return Scaffold(
       appBar: AppBar(
@@ -264,7 +252,12 @@ class _CompanionScreenState extends State<CompanionScreen> {
             else if (_turn.needsConfirmation && _turn.confirm != null)
               _ConfirmArea(
                 prompt: _turn.confirm!,
-                onChoose: (o) => _send(o, kind: 'confirm'),
+                onChoose: (o, i) => _send(
+                  o,
+                  kind: 'confirm',
+                  chosenIndex: i,
+                  shownOptions: _turn.confirm!.options,
+                ),
               )
             else
               _OptionsArea(
@@ -502,7 +495,9 @@ class _OptionsArea extends StatelessWidget {
                 ),
             ],
           ),
-          if (!lowEnergy) ...[
+          // The free-text row is hidden in low-energy mode — unless there are
+          // no chips at all: never leave the user facing a dead end.
+          if (!lowEnergy || options.isEmpty) ...[
             const SizedBox(height: 12),
             Row(
               children: [
@@ -602,7 +597,7 @@ class _ConfirmArea extends StatelessWidget {
   const _ConfirmArea({required this.prompt, required this.onChoose});
 
   final ConfirmPrompt prompt;
-  final ValueChanged<String> onChoose;
+  final void Function(String option, int index) onChoose;
 
   @override
   Widget build(BuildContext context) {
@@ -626,16 +621,15 @@ class _ConfirmArea extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          ...prompt.options.map(
-            (o) => Padding(
+          for (var i = 0; i < prompt.options.length; i++)
+            Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: BigButton(
-                label: o,
+                label: prompt.options[i],
                 color: AppColors.accent,
-                onTap: () => onChoose(o),
+                onTap: () => onChoose(prompt.options[i], i),
               ),
             ),
-          ),
         ],
       ),
     );

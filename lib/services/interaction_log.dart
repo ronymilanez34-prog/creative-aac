@@ -15,7 +15,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// the pilot (see docs/TEN_WAYS.md, way 9).
 class InteractionLog {
   static const _key = 'interaction_log_v1';
-  static const _maxEntries = 5000;
+
+  // SharedPreferences rewrites its whole backing file on every write, so the
+  // cap bounds the per-tap cost. Enough for weeks of pilot sessions; move to
+  // an append-friendly store (sqlite/file) before scaling beyond the pilot.
+  static const _maxEntries = 2000;
+
+  /// In-memory write-through cache so each append reads the store at most
+  /// once per app run.
+  List<String>? _cache;
+
+  Future<List<String>> _load() async {
+    if (_cache != null) return _cache!;
+    final prefs = await SharedPreferences.getInstance();
+    return _cache = List<String>.of(prefs.getStringList(_key) ?? const []);
+  }
 
   /// A chip/confirm/text selection inside the creation loop.
   Future<void> logSelection({
@@ -48,20 +62,28 @@ class InteractionLog {
       });
 
   Future<void> _append(Map<String, Object?> entry) async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = prefs.getStringList(_key) ?? <String>[];
+    final list = await _load();
     list.add(jsonEncode(entry));
     // Cap so the log can't grow without bound; oldest entries drop first.
-    final start = list.length > _maxEntries ? list.length - _maxEntries : 0;
-    await prefs.setStringList(_key, list.sublist(start));
+    if (list.length > _maxEntries) {
+      list.removeRange(0, list.length - _maxEntries);
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_key, list);
   }
 
   Future<List<Map<String, dynamic>>> entries() async {
-    final prefs = await SharedPreferences.getInstance();
-    return (prefs.getStringList(_key) ?? const [])
-        .map((s) => jsonDecode(s))
-        .whereType<Map<String, dynamic>>()
-        .toList();
+    final out = <Map<String, dynamic>>[];
+    for (final s in await _load()) {
+      // One corrupt row must not take down weeks of pilot data — skip it.
+      try {
+        final decoded = jsonDecode(s);
+        if (decoded is Map<String, dynamic>) out.add(decoded);
+      } on FormatException {
+        // ignore the bad entry
+      }
+    }
+    return out;
   }
 
   /// Chip selections per screen position. A heavily skewed distribution is
@@ -83,6 +105,7 @@ class InteractionLog {
       const JsonEncoder.withIndent('  ').convert(await entries());
 
   Future<void> clear() async {
+    _cache = <String>[];
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key);
   }

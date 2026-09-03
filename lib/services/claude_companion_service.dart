@@ -71,6 +71,9 @@ class ClaudeCompanionService implements CompanionService {
     }
     return CompanionTurn.fromJson(body);
   }
+
+  @override
+  void dispose() => _client.close();
 }
 
 class CompanionBackendException implements Exception {

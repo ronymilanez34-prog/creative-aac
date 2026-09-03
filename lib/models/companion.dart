@@ -97,6 +97,7 @@ class CreationPiece {
     required this.text,
     required this.userInput,
     required this.source,
+    this.questions = const [],
   });
 
   /// The text the AI appended to the creation.
@@ -106,4 +107,8 @@ class CreationPiece {
   final String userInput;
 
   final InputSource source;
+
+  /// Simple comprehension questions about [text], kept for the re-reading
+  /// mode of the finished creation.
+  final List<String> questions;
 }
