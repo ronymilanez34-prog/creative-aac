@@ -1,5 +1,6 @@
 /// Data model for one turn of the companion (supported free conversation).
 /// Mirrors the JSON output contract in docs/prompts/companion_system_prompt.md.
+library;
 
 class ChipOption {
   const ChipOption({required this.emoji, required this.label});

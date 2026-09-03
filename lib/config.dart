@@ -4,8 +4,8 @@
 /// TTS). To connect the real Claude backend, deploy `functions/` and run with:
 ///
 ///   flutter run \
-///     --dart-define=COMPANION_ENDPOINT=https://europe-west1-<project>.cloudfunctions.net/companionTurnHttp \
-///     --dart-define=COMPANION_APP_KEY=<the APP_KEY secret>
+///     --dart-define=COMPANION_ENDPOINT=`https://europe-west1-PROJECT.cloudfunctions.net/companionTurnHttp` \
+///     --dart-define=COMPANION_APP_KEY=`the APP_KEY secret`
 ///
 /// Passing secrets via --dart-define keeps them out of source control. An
 /// empty endpoint means "offline mode" everywhere.

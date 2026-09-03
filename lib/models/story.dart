@@ -3,6 +3,7 @@
 /// A [Choice] is one selectable option (hero / place / event). A [StorySpec]
 /// collects the user's choices. A [Story] is the finished result — a list of
 /// [StoryPage]s that can be read on screen and spoken aloud.
+library;
 
 class Choice {
   const Choice({required this.id, required this.label, required this.emoji});
