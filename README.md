@@ -52,6 +52,9 @@ lib/
 └── widgets/                      # BigButton, ChoiceCard, QuickBar (פס חירום)
 ```
 
+> **הקמה בלי מחשב פיתוח:** גיטהאב בונה APK וגרסת ווב אוטומטית, וה-backend
+> נפרס בלחיצה — המדריך המלא צעד-אחר-צעד: [`docs/SETUP.md`](docs/SETUP.md).
+
 ## חיבור ה-AI האמיתי
 
 בן-הלוויה מחובר ל-Claude דרך Cloud Function — **המפתח לעולם לא באפליקציה**:

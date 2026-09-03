@@ -1,0 +1,91 @@
+# Builds the app without needing Flutter on anyone's computer:
+#  • analyzes the Dart code (this is our CI "compiler"),
+#  • builds an installable Android APK (download from the run's Artifacts),
+#  • builds the web version and — on main or a manual run — publishes it to
+#    GitHub Pages, so any tablet just opens a link.
+#
+# Optional repo secrets (Settings → Secrets and variables → Actions):
+#   COMPANION_ENDPOINT — the companionTurnHttp URL (empty = offline demo)
+#   COMPANION_APP_KEY  — the APP_KEY shared secret
+# Note: values baked into a public web build are extractable by anyone who
+# digs; fine for a closed pilot — set a spend limit on the Anthropic account.
+
+name: Build app
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Platform folders are deliberately not committed — generate them fresh.
+      - name: Generate platform folders
+        run: flutter create . --platforms android,web
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Build Android APK
+        run: >
+          flutter build apk --release
+          --dart-define=COMPANION_ENDPOINT=${{ secrets.COMPANION_ENDPOINT }}
+          --dart-define=COMPANION_APP_KEY=${{ secrets.COMPANION_APP_KEY }}
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: creative-aac-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Build web
+        run: >
+          flutter build web --release --base-href "/${{ github.event.repository.name }}/"
+          --dart-define=COMPANION_ENDPOINT=${{ secrets.COMPANION_ENDPOINT }}
+          --dart-define=COMPANION_APP_KEY=${{ secrets.COMPANION_APP_KEY }}
+
+      - name: Upload web build for Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy-pages:
+    # Publishes the web build. Runs on main, or when triggered manually from
+    # the Actions tab (any branch). Requires Settings → Pages → Source:
+    # "GitHub Actions" to be enabled once.
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

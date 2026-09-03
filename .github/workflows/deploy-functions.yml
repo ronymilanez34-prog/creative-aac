@@ -1,0 +1,44 @@
+# Deploys the Claude-proxy Cloud Functions to Firebase — from the browser,
+# no local tooling needed. Trigger it manually from the Actions tab.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   FIREBASE_PROJECT_ID      — the Firebase project id
+#   FIREBASE_SERVICE_ACCOUNT — full JSON key of a service account with
+#                              deploy permissions (see docs/SETUP.md)
+#
+# The runtime secrets (ANTHROPIC_API_KEY, APP_KEY) live in Google Secret
+# Manager, not here — set them once via Cloud Shell (docs/SETUP.md, step 3).
+
+name: Deploy functions
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install function dependencies
+        run: npm --prefix functions install
+
+      - name: Write service-account credentials
+        run: printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Deploy
+        run: >
+          npx firebase-tools@latest deploy --only functions
+          --project "${{ secrets.FIREBASE_PROJECT_ID }}"
+          --non-interactive --force
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
