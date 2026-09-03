@@ -59,6 +59,11 @@ class _CompanionScreenState extends State<CompanionScreen> {
   QuickFire? _activeQuickFire;
   Timer? _quickFireTimer;
 
+  /// Latencies (ms) of the user's last few selections — the live pace signal.
+  /// Fast + consistent → the AI shortens or lays out; a long pause → it slows
+  /// down and calms. Partner modelling taps are excluded.
+  final List<int> _recentLatencies = [];
+
   @override
   void initState() {
     super.initState();
@@ -87,6 +92,16 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// the list the log must record, not the full generated set.
   List<ChipOption> get _visibleOptions =>
       _lowEnergy ? _displayOptions.take(2).toList() : _displayOptions;
+
+  String? get _paceHint {
+    if (_recentLatencies.isEmpty) return null;
+    if (_recentLatencies.last > 30000) return 'hesitant';
+    if (_recentLatencies.length >= 2 &&
+        _recentLatencies.reversed.take(2).every((l) => l < 5000)) {
+      return 'flowing';
+    }
+    return null;
+  }
 
   void _applyTurn(CompanionTurn turn, {bool speak = true}) {
     setState(() {
@@ -125,6 +140,11 @@ class _CompanionScreenState extends State<CompanionScreen> {
       latencyMs: latency,
     ));
 
+    if (source == InputSource.user) {
+      _recentLatencies.add(latency);
+      if (_recentLatencies.length > 3) _recentLatencies.removeAt(0);
+    }
+
     setState(() => _partnerArmed = false);
     await _performTurn(t, source);
     if (mounted && _failed) _speak('רגע, משהו השתבש. אפשר לנסות שוב.');
@@ -150,6 +170,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
         creationSoFar: _creationText,
         source: source,
         lowEnergy: _lowEnergy,
+        paceHint: _paceHint,
       );
       if (!mounted) return;
 

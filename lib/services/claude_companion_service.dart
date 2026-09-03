@@ -44,6 +44,7 @@ class ClaudeCompanionService implements CompanionService {
     String creationSoFar = '',
     InputSource source = InputSource.user,
     bool lowEnergy = false,
+    String? paceHint,
   }) async {
     final res = await _client
         .post(
@@ -58,6 +59,7 @@ class ClaudeCompanionService implements CompanionService {
             'userInput': userInput,
             'inputSource': source == InputSource.partner ? 'partner' : 'user',
             'lowEnergy': lowEnergy,
+            if (paceHint != null) 'paceHint': paceHint,
           }),
         )
         .timeout(const Duration(seconds: 45));

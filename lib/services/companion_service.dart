@@ -12,11 +12,14 @@ abstract class CompanionService {
   /// stateless about it — the screen owns the creation).
   /// [source] marks a partner's modelling tap so it is never treated as the
   /// user's own choice. [lowEnergy] asks for the reduced, calmer variant.
+  /// [paceHint] is the live pace signal ('flowing' | 'hesitant' | null),
+  /// computed by the screen from recent selection latencies.
   Future<CompanionTurn> turn(
     String userInput, {
     String creationSoFar = '',
     InputSource source = InputSource.user,
     bool lowEnergy = false,
+    String? paceHint,
   });
 
   /// Release any held resources (network clients etc.).
@@ -52,6 +55,7 @@ class MockCompanionService implements CompanionService {
     String creationSoFar = '',
     InputSource source = InputSource.user,
     bool lowEnergy = false,
+    String? paceHint,
   }) async {
     // Small delay so the demo feels like a real response.
     await Future<void>.delayed(const Duration(milliseconds: 450));

@@ -14,11 +14,15 @@
  *                          (sent as the `x-app-key` header). Good enough for a
  *                          closed pilot; revisit auth before any open release.
  *
- * Request data: { profile, creationSoFar, userInput, inputSource, lowEnergy }
+ * Request data:
+ *   { profile, creationSoFar, userInput, inputSource, lowEnergy, paceHint }
  *  • inputSource: "user" (default) | "partner" — a partner's modelling tap is
  *    marked so the model never treats it as the user's own choice.
  *  • lowEnergy: true → the prompt switches to the low-energy variant
  *    (2 simple options, minimal text).
+ *  • paceHint: "flowing" | "hesitant" (optional) — live pace signal computed
+ *    by the app from recent selection latencies; steers how much the model
+ *    contributes (shorten/lay out vs. slow down and calm).
  * Response: the parsed JSON turn
  *  ({ say, creation_update, options, confirm, partner_tip, questions, safeguard }).
  */
@@ -42,7 +46,7 @@ const REGION = "europe-west1"; // keep data in-region; adjust as needed
 
 /** Core: one companion turn. Throws HttpsError on failure. */
 async function runCompanionTurn(data) {
-  const { profile, creationSoFar, userInput, inputSource, lowEnergy } =
+  const { profile, creationSoFar, userInput, inputSource, lowEnergy, paceHint } =
     data || {};
   if (!userInput || !String(userInput).trim()) {
     throw new HttpsError("invalid-argument", "חסר קלט מהמשתמש (userInput).");
@@ -52,6 +56,7 @@ async function runCompanionTurn(data) {
     profile,
     creationSoFar,
     lowEnergy: lowEnergy === true,
+    paceHint: typeof paceHint === "string" ? paceHint : undefined,
   });
 
   // A partner's modelling tap is labelled so the model treats it as a
