@@ -1,10 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 
 import '../models/board.dart';
+import 'image_sink.dart';
 
 /// Parses Open Board Format files — the open standard AAC apps use to
 /// export communication boards (openboardformat.org).
@@ -16,26 +16,27 @@ import '../models/board.dart';
 ///    data URIs).
 ///
 /// The importer extracts every visible, labeled button into a [BoardWord]
-/// and writes its image into [imagesDir], so the app can show the user the
-/// exact pictures they already know from their own device.
+/// and hands its image to an [ImageSink], so the app can show the user the
+/// exact pictures they already know from their own device. No dart:io here —
+/// the same parser runs on web (with a [NoopImageSink], words-only).
 class ObzImporter {
   /// Words beyond this are dropped — enough for any real board set, and it
   /// keeps a malformed/huge file from filling the device.
   static const int maxWords = 300;
 
-  /// Parses [bytes] (an .obz or .obf file) and writes button images into
-  /// [imagesDir]. Throws [ObzFormatException] when the file isn't a board.
+  /// Parses [bytes] (an .obz or .obf file) and hands button images to
+  /// [images]. Throws [ObzFormatException] when the file isn't a board.
   Future<ObzImportResult> import({
     required Uint8List bytes,
-    required Directory imagesDir,
+    required ImageSink images,
   }) async {
-    if (_looksLikeZip(bytes)) return _importObz(bytes, imagesDir);
-    return _importSingleObf(bytes, imagesDir);
+    if (_looksLikeZip(bytes)) return _importObz(bytes, images);
+    return _importSingleObf(bytes, images);
   }
 
   bool _looksLikeZip(Uint8List b) => b.length > 2 && b[0] == 0x50 && b[1] == 0x4B;
 
-  Future<ObzImportResult> _importObz(Uint8List bytes, Directory imagesDir) async {
+  Future<ObzImportResult> _importObz(Uint8List bytes, ImageSink images) async {
     final Archive archive;
     try {
       archive = ZipDecoder().decodeBytes(bytes);
@@ -67,7 +68,7 @@ class ObzImporter {
       if (name.toLowerCase().endsWith('.obf')) boardPaths.add(name);
     }
 
-    final ctx = _ImportContext(imagesDir);
+    final ctx = _ImportContext(images);
     final seenBoards = <String>{};
     for (final path in boardPaths) {
       if (!seenBoards.add(path)) continue;
@@ -84,14 +85,14 @@ class ObzImporter {
     return ctx.result();
   }
 
-  Future<ObzImportResult> _importSingleObf(Uint8List bytes, Directory imagesDir) async {
+  Future<ObzImportResult> _importSingleObf(Uint8List bytes, ImageSink images) async {
     final Map<String, dynamic> board;
     try {
       board = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
     } catch (_) {
       throw const ObzFormatException('הקובץ לא נפתח — ודאו שזה קובץ ‎.obf או ‎.obz');
     }
-    final ctx = _ImportContext(imagesDir);
+    final ctx = _ImportContext(images);
     ctx.boardsCount = 1;
     _collectBoard(board, ctx);
     return ctx.result();
@@ -141,7 +142,6 @@ class ObzImporter {
         label: label,
         speak: speak.isEmpty ? null : speak,
         imageFile: imageFile,
-        imagePath: imageFile == null ? null : '${ctx.imagesDir.path}/$imageFile',
       ));
     }
   }
@@ -180,9 +180,7 @@ class ObzImporter {
     ext ??= _extFromMime((image['content_type'] ?? '').toString());
     if (ext == null) return null;
 
-    final name = 'img_${ctx.imagesWritten++}.$ext';
-    File('${ctx.imagesDir.path}/$name').writeAsBytesSync(data);
-    return name;
+    return ctx.images.write('img_${ctx.imagesWritten++}.$ext', data);
   }
 
   String _normalize(String name) => name.startsWith('./') ? name.substring(2) : name;
@@ -224,9 +222,9 @@ class ObzImporter {
 }
 
 class _ImportContext {
-  _ImportContext(this.imagesDir);
+  _ImportContext(this.images);
 
-  final Directory imagesDir;
+  final ImageSink images;
   final words = <BoardWord>[];
   final seenLabels = <String>{};
   int boardsCount = 0;

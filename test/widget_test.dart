@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -12,6 +11,7 @@ import 'package:creative_aac/models/profile.dart';
 import 'package:creative_aac/models/story.dart';
 import 'package:creative_aac/screens/partner_screen.dart';
 import 'package:creative_aac/services/chip_layout.dart';
+import 'package:creative_aac/services/image_sink.dart';
 import 'package:creative_aac/services/interaction_log.dart';
 import 'package:creative_aac/services/obz_importer.dart';
 
@@ -137,9 +137,6 @@ void main() {
   });
 
   test('obz importer parses a bare .obf board with Hebrew labels', () async {
-    final dir = Directory.systemTemp.createTempSync('obf_test');
-    addTearDown(() => dir.deleteSync(recursive: true));
-
     final obf = utf8.encode(jsonEncode({
       'format': 'open-board-0.1',
       'buttons': [
@@ -158,7 +155,7 @@ void main() {
 
     final result = await ObzImporter().import(
       bytes: Uint8List.fromList(obf),
-      imagesDir: dir,
+      images: const NoopImageSink(),
     );
 
     // Grid order preserved: כלב before מים; hidden/unlabeled dropped.
@@ -169,7 +166,7 @@ void main() {
     expect(
       () => ObzImporter().import(
         bytes: Uint8List.fromList(utf8.encode('not a board')),
-        imagesDir: dir,
+        images: const NoopImageSink(),
       ),
       throwsA(isA<ObzFormatException>()),
     );
