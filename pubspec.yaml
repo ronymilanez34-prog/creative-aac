@@ -15,7 +15,9 @@ dependencies:
   http: ^1.2.2
   # Board import (.obz/.obf) — picking the file, unzipping it, storing the
   # images it contains, and rendering SVG symbols.
-  file_picker: ^8.1.2
+  # 10.x compiles against current Android SDKs (8.x pins compileSdk 34 and
+  # breaks the release build against newer plugin requirements).
+  file_picker: ^10.1.0
   archive: ^3.6.1
   path_provider: ^2.1.4
   flutter_svg: ^2.0.10
