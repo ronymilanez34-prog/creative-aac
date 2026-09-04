@@ -13,6 +13,12 @@ dependencies:
   flutter_tts: ^4.2.5
   shared_preferences: ^2.3.2
   http: ^1.2.2
+  # Board import (.obz/.obf) — picking the file, unzipping it, storing the
+  # images it contains, and rendering SVG symbols.
+  file_picker: ^8.1.2
+  archive: ^3.6.1
+  path_provider: ^2.1.4
+  flutter_svg: ^2.0.10
 
 dev_dependencies:
   flutter_test:

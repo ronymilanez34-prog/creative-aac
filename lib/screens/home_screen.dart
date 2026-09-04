@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../config.dart';
+import '../services/board_store.dart';
 import '../services/claude_companion_service.dart';
 import '../services/companion_service.dart';
 import '../services/profile_store.dart';
@@ -9,6 +10,7 @@ import '../widgets/big_button.dart';
 import 'build/build_story_screen.dart';
 import 'companion_screen.dart';
 import 'my_stories_screen.dart';
+import 'my_words_screen.dart';
 import 'partner_screen.dart';
 
 /// Calm landing screen: one clear primary action (build a story) plus access
@@ -29,13 +31,25 @@ class HomeScreen extends StatelessWidget {
             );
 
   Future<void> _openCompanion(BuildContext context) async {
-    // The personal profile (edited in partner mode) feeds the prompt.
+    // The personal profile (edited in partner mode) feeds the prompt — and so
+    // does the vocabulary imported from the user's own AAC board: familiar
+    // words are the wide-walls material the AI should offer chips from.
     final profile = await ProfileStore().load();
+    final boardWords = await BoardStore().load();
+    var promptText = profile.toPromptText();
+    if (boardWords.isNotEmpty) {
+      final familiar =
+          boardWords.take(60).map((w) => w.label).join(', ');
+      promptText = '$promptText\n'
+              'אוצר המילים המוכר שלו (מהלוח האישי שיובא — העדף להציע מתוכו): '
+              '$familiar.'
+          .trim();
+    }
     if (!context.mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => CompanionScreen(
-          service: _companionService(profile.toPromptText()),
+          service: _companionService(promptText),
         ),
       ),
     );
@@ -98,6 +112,17 @@ class HomeScreen extends StatelessWidget {
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => const MyStoriesScreen(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  BigButton(
+                    label: 'המילים שלי',
+                    emoji: '💬',
+                    color: AppColors.accent,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const MyWordsScreen(),
                       ),
                     ),
                   ),

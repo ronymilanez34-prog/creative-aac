@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +13,7 @@ import 'package:creative_aac/models/story.dart';
 import 'package:creative_aac/screens/partner_screen.dart';
 import 'package:creative_aac/services/chip_layout.dart';
 import 'package:creative_aac/services/interaction_log.dart';
+import 'package:creative_aac/services/obz_importer.dart';
 
 void main() {
   testWidgets('home screen shows the calm landing actions', (tester) async {
@@ -129,5 +134,44 @@ void main() {
     final counts = await log.freeTextCounts();
     expect(counts['אוטובוס'], 3);
     expect(counts.containsKey('כלב'), isFalse);
+  });
+
+  test('obz importer parses a bare .obf board with Hebrew labels', () async {
+    final dir = Directory.systemTemp.createTempSync('obf_test');
+    addTearDown(() => dir.deleteSync(recursive: true));
+
+    final obf = utf8.encode(jsonEncode({
+      'format': 'open-board-0.1',
+      'buttons': [
+        {'id': 1, 'label': 'מים', 'vocalization': 'אני רוצה מים'},
+        {'id': 2, 'label': 'כלב'},
+        {'id': 3, 'label': '', 'hidden': false}, // unlabeled — skipped
+        {'id': 4, 'label': 'מוסתר', 'hidden': true}, // hidden — skipped
+      ],
+      'grid': {
+        'order': [
+          [2, 1],
+          [3, 4],
+        ],
+      },
+    }));
+
+    final result = await ObzImporter().import(
+      bytes: Uint8List.fromList(obf),
+      imagesDir: dir,
+    );
+
+    // Grid order preserved: כלב before מים; hidden/unlabeled dropped.
+    expect(result.words.map((w) => w.label).toList(), ['כלב', 'מים']);
+    expect(result.words[1].spokenText, 'אני רוצה מים');
+    expect(result.boardsCount, 1);
+
+    expect(
+      () => ObzImporter().import(
+        bytes: Uint8List.fromList(utf8.encode('not a board')),
+        imagesDir: dir,
+      ),
+      throwsA(isA<ObzFormatException>()),
+    );
   });
 }
