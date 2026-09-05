@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../data/choices.dart';
+import '../../models/board.dart';
 import '../../models/story.dart';
+import '../../services/board_store.dart';
 import '../../services/speech.dart';
 import '../../theme.dart';
 import '../../widgets/big_button.dart';
+import '../../widgets/board_composer.dart';
 import '../../widgets/choice_card.dart';
 import '../story_view_screen.dart';
 
@@ -28,8 +31,16 @@ class _BuildStoryScreenState extends State<BuildStoryScreen> {
   Choice? _place;
   final List<StoryPage> _pages = [];
 
+  /// The user's imported vocabulary — free-text pages can be composed from
+  /// their own board words instead of a keyboard (AAC all the way down).
+  List<BoardWord> _boardWords = const [];
+
   /// 0 = pick hero, 1 = pick place, 2 = build the story page by page.
   int _step = 0;
+
+  /// When the last pick opened a narrative thread, the next options continue
+  /// it (see [kFollowUps]); null means the generic event list.
+  String? _threadId;
 
   static const _titles = [
     'מי הגיבור של הסיפור?',
@@ -43,6 +54,9 @@ class _BuildStoryScreenState extends State<BuildStoryScreen> {
   @override
   void initState() {
     super.initState();
+    BoardStore().load().then((words) {
+      if (mounted && words.isNotEmpty) setState(() => _boardWords = words);
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) => _speakTitle());
   }
 
@@ -59,7 +73,7 @@ class _BuildStoryScreenState extends State<BuildStoryScreen> {
   List<Choice> get _options => switch (_step) {
         0 => kHeroes,
         1 => kPlaces,
-        _ => kEvents,
+        _ => kFollowUps[_threadId] ?? kEvents,
       };
 
   void _select(Choice c) {
@@ -97,17 +111,27 @@ class _BuildStoryScreenState extends State<BuildStoryScreen> {
           emoji: c.emoji,
           text: '$connector ${_hero!.label} ${c.label}!',
         );
-        setState(() => _pages.add(page));
+        setState(() {
+          _pages.add(page);
+          // An event opens its thread; a follow-up closes it — the next
+          // question returns to the wide list.
+          _threadId = _threadId == null && kFollowUps.containsKey(c.id)
+              ? c.id
+              : null;
+        });
         _speech.speak(page.text);
         _scrollToEnd();
     }
   }
 
-  void _addIdea() {
-    final text = _idea.text.trim();
+  void _addIdea([String? fromComposer]) {
+    final text = (fromComposer ?? _idea.text).trim();
     if (text.isEmpty) return;
     final page = StoryPage(emoji: '💡', text: text);
-    setState(() => _pages.add(page));
+    setState(() {
+      _pages.add(page);
+      _threadId = null;
+    });
     _idea.clear();
     _speech.speak(page.text);
     _scrollToEnd();
@@ -130,6 +154,7 @@ class _BuildStoryScreenState extends State<BuildStoryScreen> {
       return;
     }
     setState(() {
+      _threadId = null;
       if (_step == 2 && _pages.length > 2) {
         // Inside the loop: back removes the last page (undo, not exit).
         _pages.removeLast();
@@ -258,6 +283,14 @@ class _BuildStoryScreenState extends State<BuildStoryScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 child: Row(
                   children: [
+                    if (_boardWords.isNotEmpty) ...[
+                      BoardComposerButton(
+                        words: _boardWords,
+                        controller: _idea,
+                        onSubmit: (text) => _addIdea(text),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                     Expanded(
                       child: TextField(
                         controller: _idea,
