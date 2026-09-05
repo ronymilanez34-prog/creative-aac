@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../models/board.dart';
 import '../models/companion.dart';
 import '../models/story.dart';
+import '../services/board_store.dart';
 import '../services/chip_layout.dart';
 import '../services/companion_service.dart';
 import '../services/interaction_log.dart';
@@ -11,6 +13,7 @@ import '../services/speech.dart';
 import '../services/story_store.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
+import '../widgets/board_image.dart';
 import '../widgets/quick_bar.dart';
 
 /// The creation loop: "supported free conversation" co-creation.
@@ -63,6 +66,11 @@ class _CompanionScreenState extends State<CompanionScreen> {
   QuickFire? _activeQuickFire;
   Timer? _quickFireTimer;
 
+  /// The user's own imported vocabulary — lets them compose free text by
+  /// tapping familiar board words instead of typing ("writing yourself"
+  /// must not assume a keyboard).
+  List<BoardWord> _boardWords = const [];
+
   /// Latencies (ms) of the user's last few selections — the live pace signal.
   /// Fast + consistent → the AI shortens or lays out; a long pause → it slows
   /// down and calms. Partner modelling taps are excluded.
@@ -74,6 +82,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
     _turn = widget.service.opening();
     _displayOptions = _chipSlots.arrange(_turn.options);
     _optionsShownAt = DateTime.now();
+    BoardStore().load().then((words) {
+      if (mounted && words.isNotEmpty) setState(() => _boardWords = words);
+    });
     // Speak the opening after the first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) => _speak(_turn.say));
   }
@@ -316,6 +327,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
               _OptionsArea(
                 options: options,
                 controller: _input,
+                boardWords: _boardWords,
                 lowEnergy: _lowEnergy,
                 partnerMode: _partnerMode,
                 partnerArmed: _partnerArmed,
@@ -501,6 +513,7 @@ class _OptionsArea extends StatelessWidget {
   const _OptionsArea({
     required this.options,
     required this.controller,
+    required this.boardWords,
     required this.lowEnergy,
     required this.partnerMode,
     required this.partnerArmed,
@@ -511,6 +524,7 @@ class _OptionsArea extends StatelessWidget {
 
   final List<ChipOption> options;
   final TextEditingController controller;
+  final List<BoardWord> boardWords;
   final bool lowEnergy;
   final bool partnerMode;
   final bool partnerArmed;
@@ -554,6 +568,26 @@ class _OptionsArea extends StatelessWidget {
             const SizedBox(height: 12),
             Row(
               children: [
+                // "Writing yourself" must not assume a keyboard: with an
+                // imported board, free text can be composed by tapping the
+                // user's own familiar words.
+                if (boardWords.isNotEmpty) ...[
+                  Material(
+                    color: AppColors.surface,
+                    shape: const CircleBorder(
+                      side: BorderSide(color: AppColors.border),
+                    ),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: () => _openBoardComposer(context),
+                      child: const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Icon(Icons.apps_rounded, color: AppColors.text),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 Expanded(
                   child: TextField(
                     controller: controller,
@@ -594,6 +628,106 @@ class _OptionsArea extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  /// Bottom sheet where the user composes free text from their own board
+  /// words — tap adds a word, backspace removes the last one, send submits.
+  void _openBoardComposer(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: controller,
+                      builder: (_, value, __) => Text(
+                        value.text.isEmpty
+                            ? 'לחצו על מילים כדי להרכיב משפט'
+                            : value.text,
+                        style: TextStyle(
+                          fontSize: 18,
+                          color: value.text.isEmpty
+                              ? AppColors.textSoft
+                              : AppColors.text,
+                        ),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'מחיקת המילה האחרונה',
+                    icon: const Icon(Icons.backspace_outlined),
+                    onPressed: () {
+                      final words = controller.text.trim().split(' ');
+                      controller.text =
+                          words.length <= 1 ? '' : words.sublist(0, words.length - 1).join(' ');
+                    },
+                  ),
+                  IconButton(
+                    tooltip: 'שליחה',
+                    icon: const Icon(Icons.send_rounded, color: AppColors.primary),
+                    onPressed: () {
+                      final text = controller.text.trim();
+                      if (text.isEmpty) return;
+                      Navigator.of(sheetContext).pop();
+                      onSubmit(text);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Flexible(
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 96,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                  ),
+                  itemCount: boardWords.length,
+                  itemBuilder: (_, i) {
+                    final word = boardWords[i];
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () {
+                        final current = controller.text.trim();
+                        controller.text =
+                            current.isEmpty ? word.label : '$current ${word.label}';
+                      },
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          BoardImage(imagePath: word.imagePath, size: 40),
+                          const SizedBox(height: 4),
+                          Text(
+                            word.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
