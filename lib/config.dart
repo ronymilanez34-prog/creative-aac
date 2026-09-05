@@ -9,10 +9,13 @@
 ///
 /// Passing secrets via --dart-define keeps them out of source control. An
 /// empty endpoint means "offline mode" everywhere.
-const String kCompanionEndpoint =
-    String.fromEnvironment('COMPANION_ENDPOINT', defaultValue: '');
-const String kCompanionAppKey =
-    String.fromEnvironment('COMPANION_APP_KEY', defaultValue: '');
+// .trim() defends against invisible whitespace that sneaks into CI secrets
+// when values are pasted from a terminal — a trailing newline in the app key
+// once cost hours of 401 debugging.
+final String kCompanionEndpoint =
+    const String.fromEnvironment('COMPANION_ENDPOINT', defaultValue: '').trim();
+final String kCompanionAppKey =
+    const String.fromEnvironment('COMPANION_APP_KEY', defaultValue: '').trim();
 
 /// Placeholder personal profile fed to the companion until the clinician
 /// calibration mode exists. Structure and examples:
