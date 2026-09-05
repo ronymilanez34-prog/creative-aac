@@ -65,7 +65,13 @@ class ClaudeCompanionService implements CompanionService {
         .timeout(const Duration(seconds: 45));
 
     if (res.statusCode != 200) {
-      throw CompanionBackendException(res.statusCode, res.body);
+      // Safe config fingerprint (never the full key) so a screenshot of the
+      // retry screen says exactly what THIS client holds — remote debugging
+      // with non-technical testers depends on it.
+      final fp = appKey.isEmpty
+          ? 'key:EMPTY'
+          : 'key:${appKey.substring(0, 4)}…(${appKey.length})';
+      throw CompanionBackendException(res.statusCode, '${res.body} [$fp]');
     }
     final body = jsonDecode(utf8.decode(res.bodyBytes));
     if (body is! Map<String, dynamic>) {
