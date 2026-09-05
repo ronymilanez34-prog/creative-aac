@@ -53,6 +53,10 @@ class _CompanionScreenState extends State<CompanionScreen> {
 
   bool _busy = false;
   bool _failed = false;
+
+  /// The raw error behind the last failure — shown small on the retry screen
+  /// so remote debugging reads the cause instead of guessing it.
+  String _lastError = '';
   String _lastInput = '';
   InputSource _lastSource = InputSource.user;
 
@@ -200,11 +204,12 @@ class _CompanionScreenState extends State<CompanionScreen> {
       }
       _applyTurn(next);
       _scrollCreationToEnd();
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
         _busy = false;
         _failed = true;
+        _lastError = e.toString();
       });
     }
   }
@@ -312,7 +317,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
                 ),
               ),
             if (_failed)
-              _RetryArea(onRetry: _retry)
+              _RetryArea(onRetry: _retry, detail: _lastError)
             else if (_turn.needsConfirmation && _turn.confirm != null)
               _ConfirmArea(
                 prompt: _turn.confirm!,
@@ -487,9 +492,10 @@ class _QuickFireBanner extends StatelessWidget {
 }
 
 class _RetryArea extends StatelessWidget {
-  const _RetryArea({required this.onRetry});
+  const _RetryArea({required this.onRetry, this.detail = ''});
 
   final VoidCallback onRetry;
+  final String detail;
 
   @override
   Widget build(BuildContext context) {
@@ -501,6 +507,18 @@ class _RetryArea extends StatelessWidget {
             'משהו השתבש בדרך. ננסה שוב?',
             style: TextStyle(fontSize: 18, color: AppColors.textSoft),
           ),
+          if (detail.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                detail,
+                textAlign: TextAlign.center,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                textDirection: TextDirection.ltr,
+                style: const TextStyle(fontSize: 12, color: AppColors.textSoft),
+              ),
+            ),
           const SizedBox(height: 10),
           BigButton(label: 'נסה שוב', emoji: '🔄', onTap: onRetry),
         ],
