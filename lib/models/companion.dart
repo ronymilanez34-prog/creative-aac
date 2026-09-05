@@ -32,9 +32,25 @@ class ConfirmPrompt {
 /// log, provenance).
 enum InputSource { user, partner }
 
+/// One unit of the companion's message rendered in AAC: symbol + word.
+/// "AAC in, AAC out" — whoever communicates in symbols gets answered in
+/// symbols (aided language input); the full [CompanionTurn.say] stays for TTS.
+class SaySymbol {
+  const SaySymbol({required this.emoji, required this.word});
+
+  final String emoji;
+  final String word;
+
+  factory SaySymbol.fromJson(Map<String, dynamic> j) => SaySymbol(
+        emoji: (j['emoji'] ?? '').toString(),
+        word: (j['word'] ?? '').toString(),
+      );
+}
+
 class CompanionTurn {
   const CompanionTurn({
     required this.say,
+    this.saySymbols = const [],
     this.creationUpdate,
     this.needsConfirmation = false,
     this.confirm,
@@ -44,8 +60,11 @@ class CompanionTurn {
     this.safeguard = false,
   });
 
-  /// Short warm response — shown and spoken aloud.
+  /// Short warm response — spoken aloud (and the fallback when no symbols).
   final String say;
+
+  /// The same message as a telegraphic symbol sequence — what the eyes read.
+  final List<SaySymbol> saySymbols;
 
   /// New piece appended to the creation (or null).
   final String? creationUpdate;
@@ -72,6 +91,11 @@ class CompanionTurn {
 
   factory CompanionTurn.fromJson(Map<String, dynamic> j) => CompanionTurn(
         say: (j['say'] ?? '').toString(),
+        saySymbols: (j['say_symbols'] as List? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(SaySymbol.fromJson)
+            .where((s) => s.word.trim().isNotEmpty)
+            .toList(),
         creationUpdate: j['creation_update']?.toString(),
         needsConfirmation: j['needs_confirmation'] == true,
         confirm: j['confirm'] is Map<String, dynamic>

@@ -30,6 +30,11 @@ class ClaudeCompanionService implements CompanionService {
   @override
   CompanionTurn opening() => const CompanionTurn(
         say: 'היי! מה יוצרים היום?',
+        saySymbols: [
+          SaySymbol(emoji: '👋', word: 'שלום'),
+          SaySymbol(emoji: '🎨', word: 'ליצור'),
+          SaySymbol(emoji: '❓', word: 'מה'),
+        ],
         options: [
           ChipOption(emoji: '📖', label: 'סיפור'),
           ChipOption(emoji: '🎵', label: 'שיר'),

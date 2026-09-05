@@ -303,7 +303,12 @@ class _CompanionScreenState extends State<CompanionScreen> {
             if (_activeQuickFire != null)
               _QuickFireBanner(fire: _activeQuickFire!),
             _CreationCard(text: _creationText, scroll: _creationScroll),
-            _CompanionBubble(text: _turn.say, onSpeak: () => _speak(_turn.say)),
+            _CompanionBubble(
+              text: _turn.say,
+              symbols: _turn.saySymbols,
+              onSpeak: () => _speak(_turn.say),
+              onSymbolTap: (w) => _speak(w),
+            ),
             if (_partnerMode && (_turn.partnerTip?.trim().isNotEmpty ?? false))
               _PartnerTip(text: _turn.partnerTip!.trim()),
             const Spacer(),
@@ -390,11 +395,22 @@ class _CreationCard extends StatelessWidget {
   }
 }
 
+/// The companion's message. AAC in — AAC out: when the turn carries a symbol
+/// sequence, that is what the eyes read (symbol + word cards, telegraphic);
+/// the full sentence stays for the speaker button. Tapping a symbol speaks
+/// its word. Falls back to the plain text bubble when no symbols came.
 class _CompanionBubble extends StatelessWidget {
-  const _CompanionBubble({required this.text, required this.onSpeak});
+  const _CompanionBubble({
+    required this.text,
+    required this.onSpeak,
+    this.symbols = const [],
+    this.onSymbolTap,
+  });
 
   final String text;
+  final List<SaySymbol> symbols;
   final VoidCallback onSpeak;
+  final ValueChanged<String>? onSymbolTap;
 
   @override
   Widget build(BuildContext context) {
@@ -412,14 +428,53 @@ class _CompanionBubble extends StatelessWidget {
                 color: AppColors.primary.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: Text(
-                text,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.text,
-                ),
-              ),
+              child: symbols.isEmpty
+                  ? Text(
+                      text,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.text,
+                      ),
+                    )
+                  : Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final s in symbols)
+                          InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: onSymbolTap == null
+                                ? null
+                                : () => onSymbolTap!(s.word),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: AppColors.surface,
+                                borderRadius: BorderRadius.circular(12),
+                                border:
+                                    Border.all(color: AppColors.border),
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(s.emoji,
+                                      style: const TextStyle(fontSize: 26)),
+                                  Text(
+                                    s.word,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.text,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
             ),
           ),
           IconButton(
