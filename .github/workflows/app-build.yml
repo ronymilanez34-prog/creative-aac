@@ -58,6 +58,7 @@ jobs:
           flutter build apk --release
           --dart-define=COMPANION_ENDPOINT=${{ secrets.COMPANION_ENDPOINT }}
           --dart-define=COMPANION_APP_KEY=${{ secrets.COMPANION_APP_KEY }}
+          --dart-define=BUILD_STAMP=${{ github.run_number }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -70,6 +71,7 @@ jobs:
           flutter build web --release --base-href "/${{ github.event.repository.name }}/"
           --dart-define=COMPANION_ENDPOINT=${{ secrets.COMPANION_ENDPOINT }}
           --dart-define=COMPANION_APP_KEY=${{ secrets.COMPANION_APP_KEY }}
+          --dart-define=BUILD_STAMP=${{ github.run_number }}
 
       - name: Upload web build for Pages
         uses: actions/upload-pages-artifact@v3

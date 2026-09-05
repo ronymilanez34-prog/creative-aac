@@ -143,6 +143,17 @@ class HomeScreen extends StatelessWidget {
                           TextStyle(color: AppColors.textSoft, fontSize: 15),
                     ),
                   ),
+                  if (kBuildStamp.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'גרסה $kBuildStamp',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.textSoft.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),

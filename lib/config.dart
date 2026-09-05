@@ -17,6 +17,12 @@ final String kCompanionEndpoint =
 final String kCompanionAppKey =
     const String.fromEnvironment('COMPANION_APP_KEY', defaultValue: '').trim();
 
+/// CI run number baked into each build (see app-build.yml). Shown tiny on
+/// the home screen so "which version is actually running here?" is a glance,
+/// not a debugging session. Empty in local/dev builds.
+const String kBuildStamp =
+    String.fromEnvironment('BUILD_STAMP', defaultValue: '');
+
 /// Placeholder personal profile fed to the companion until the clinician
 /// calibration mode exists. Structure and examples:
 /// docs/ASSESSMENT_TO_PROMPT.md.
