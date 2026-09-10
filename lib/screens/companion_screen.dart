@@ -256,14 +256,24 @@ class _CompanionScreenState extends State<CompanionScreen> {
   }
 
   void _onQuickFire(QuickFire q) {
-    // Local and immediate: speak first, everything else after.
-    _speech.speak(q.spoken);
-    unawaited(_log.logQuickFire(q.label));
+    // A regulation message ACTS, it doesn't only speak: everything stops
+    // and the whole screen becomes the message, until the user chooses to
+    // return. "Too loud" also silences and drops to low-energy first.
     _quickFireTimer?.cancel();
+    if (q.label == 'חזק מדי') {
+      _speech.stop();
+      _lowEnergy = true;
+    } else {
+      _speech.stop();
+      _speech.speak(q.spoken);
+    }
+    unawaited(_log.logQuickFire(q.label));
     setState(() => _activeQuickFire = q);
-    _quickFireTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted) setState(() => _activeQuickFire = null);
-    });
+  }
+
+  void _dismissQuickFire() {
+    _speech.stop();
+    setState(() => _activeQuickFire = null);
   }
 
   void _scrollThreadToEnd() {
@@ -326,11 +336,11 @@ class _CompanionScreenState extends State<CompanionScreen> {
         ],
       ),
       body: SafeArea(
-        child: Column(
+        child: Stack(
+          children: [
+            Column(
           children: [
             if (_turn.safeguard) const _SafeguardBanner(),
-            if (_activeQuickFire != null)
-              _QuickFireBanner(fire: _activeQuickFire!),
             _CreationCard(text: _creationText, scroll: _creationScroll),
             Expanded(
               child: ListView.separated(
@@ -385,6 +395,15 @@ class _CompanionScreenState extends State<CompanionScreen> {
                 onSubmit: (text) => _send(text, kind: 'text'),
               ),
             QuickBar(onFire: _onQuickFire),
+          ],
+            ),
+            if (_activeQuickFire != null)
+              Positioned.fill(
+                child: _QuickFireOverlay(
+                  fire: _activeQuickFire!,
+                  onDismiss: _dismissQuickFire,
+                ),
+              ),
           ],
         ),
       ),
@@ -679,24 +698,52 @@ class _PartnerTip extends StatelessWidget {
   }
 }
 
-class _QuickFireBanner extends StatelessWidget {
-  const _QuickFireBanner({required this.fire});
+/// A quick-fire message takes over the whole screen: everything pauses, the
+/// message is unmissable (also to a partner across the room), and nothing
+/// moves until the user chooses to return. Help/pain get the loud styling;
+/// stop/break/space get a calm one.
+class _QuickFireOverlay extends StatelessWidget {
+  const _QuickFireOverlay({required this.fire, required this.onDismiss});
 
   final QuickFire fire;
+  final VoidCallback onDismiss;
+
+  bool get _urgent => fire.label == 'עזרה' || fire.label == 'כואב לי';
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      color: AppColors.accent.withValues(alpha: 0.15),
-      padding: const EdgeInsets.all(14),
-      child: Text(
-        '${fire.emoji}  ${fire.spoken}',
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.w800,
-          color: AppColors.text,
+    final bg = _urgent ? const Color(0xFFB4483C) : AppColors.primaryDark;
+    return GestureDetector(
+      onTap: onDismiss,
+      child: Container(
+        color: bg,
+        alignment: Alignment.center,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(fire.emoji, style: const TextStyle(fontSize: 96)),
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                fire.spoken,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 34,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(height: 48),
+            Text(
+              _urgent ? 'לחצו בכל מקום כשהעזרה הגיעה' : 'לחצו כשמוכנים להמשיך',
+              style: TextStyle(
+                fontSize: 17,
+                color: Colors.white.withValues(alpha: 0.85),
+              ),
+            ),
+          ],
         ),
       ),
     );
