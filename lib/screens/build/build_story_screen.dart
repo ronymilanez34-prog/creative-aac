@@ -283,14 +283,12 @@ class _BuildStoryScreenState extends State<BuildStoryScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 child: Row(
                   children: [
-                    if (_boardWords.isNotEmpty) ...[
-                      BoardComposerButton(
-                        words: _boardWords,
-                        controller: _idea,
-                        onSubmit: (text) => _addIdea(text),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
+                    BoardComposerButton(
+                      words: _boardWords,
+                      controller: _idea,
+                      onSubmit: (text) => _addIdea(text),
+                    ),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
                         controller: _idea,

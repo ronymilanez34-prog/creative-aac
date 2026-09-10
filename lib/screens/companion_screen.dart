@@ -633,17 +633,15 @@ class _OptionsArea extends StatelessWidget {
             const SizedBox(height: 12),
             Row(
               children: [
-                // "Writing yourself" must not assume a keyboard: with an
-                // imported board, free text can be composed by tapping the
-                // user's own familiar words.
-                if (boardWords.isNotEmpty) ...[
-                  BoardComposerButton(
-                    words: boardWords,
-                    controller: controller,
-                    onSubmit: onSubmit,
-                  ),
-                  const SizedBox(width: 8),
-                ],
+                // "Writing yourself" must not assume a keyboard: the board
+                // button is always there — built-in core vocabulary by
+                // category, plus the user's imported board when one exists.
+                BoardComposerButton(
+                  words: boardWords,
+                  controller: controller,
+                  onSubmit: onSubmit,
+                ),
+                const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
                     controller: controller,
