@@ -152,6 +152,78 @@ exports.companionTurnHttp = onRequest(
 );
 
 /**
+ * Real picture generation for the "build a picture" mode: the user's scene
+ * (their own names for things included) becomes an Imagen prompt. Runs on
+ * the same GCP project/billing; the function authenticates with its own
+ * service identity via the metadata server — no extra key to manage.
+ * Guarded by the same APP_KEY header as the companion.
+ */
+const IMAGEN_MODEL = "imagen-3.0-fast-generate-001";
+const IMAGEN_URL =
+  `https://us-central1-aiplatform.googleapis.com/v1/projects/` +
+  `${process.env.GCLOUD_PROJECT}/locations/us-central1/publishers/google/` +
+  `models/${IMAGEN_MODEL}:predict`;
+
+async function serviceAccessToken() {
+  const res = await fetch(
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+    { headers: { "Metadata-Flavor": "Google" } }
+  );
+  if (!res.ok) throw new Error(`metadata token: ${res.status}`);
+  return (await res.json()).access_token;
+}
+
+exports.imagineHttp = onRequest(
+  { region: REGION, secrets: [APP_KEY], cors: true, timeoutSeconds: 120 },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "POST בלבד." });
+      return;
+    }
+    if (!req.get("x-app-key") || req.get("x-app-key") !== APP_KEY.value()) {
+      res.status(401).json({ error: "מפתח אפליקציה חסר או שגוי (x-app-key)." });
+      return;
+    }
+    const prompt = String((req.body || {}).prompt || "").trim().slice(0, 800);
+    if (!prompt) {
+      res.status(400).json({ error: "חסר תיאור לתמונה (prompt)." });
+      return;
+    }
+    try {
+      const token = await serviceAccessToken();
+      const r = await fetch(IMAGEN_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          instances: [{ prompt }],
+          parameters: { sampleCount: 1, aspectRatio: "4:3" },
+        }),
+      });
+      if (!r.ok) {
+        const detail = await r.text().catch(() => "");
+        res.status(500).json({
+          error: `מחולל התמונות החזיר שגיאה (${r.status}).`,
+          detail: detail.slice(0, 500),
+        });
+        return;
+      }
+      const payload = await r.json();
+      const b64 = payload?.predictions?.[0]?.bytesBase64Encoded;
+      if (!b64) {
+        res.status(500).json({ error: "לא התקבלה תמונה מהמחולל." });
+        return;
+      }
+      res.status(200).json({ imageB64: b64 });
+    } catch (err) {
+      res.status(500).json({ error: `שגיאה ביצירת התמונה: ${String(err)}` });
+    }
+  }
+);
+
+/**
  * Claude is asked for JSON only, but be defensive: strip ```json fences and
  * grab the outermost object if any stray text slips in.
  */

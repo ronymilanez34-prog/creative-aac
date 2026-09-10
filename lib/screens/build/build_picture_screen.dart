@@ -1,12 +1,17 @@
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../models/board.dart';
 import '../../models/story.dart';
+import '../../services/board_store.dart';
+import '../../services/imagine_service.dart';
 import '../../services/speech.dart';
 import '../../services/story_store.dart';
 import '../../theme.dart';
 import '../../widgets/big_button.dart';
+import '../../widgets/board_composer.dart';
 
 /// Building a PICTURE together — creation you can see. Choose a background,
 /// then every tap adds an element onto the canvas itself; drag it wherever
@@ -93,7 +98,10 @@ class _Placed {
   _Placed(this.emoji, this.label, this.dx, this.dy);
 
   final String emoji;
-  final String label;
+
+  /// The user's OWN name for this thing — a lion may be their doll Arik.
+  /// Long-press renames; speech and the generated picture follow it.
+  String label;
   double dx; // 0..1 across the canvas
   double dy; // 0..1 down the canvas
 }
@@ -106,9 +114,17 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
   final List<_Placed> _placed = [];
   int _group = 0;
 
+  bool _imagining = false;
+  Uint8List? _realImage;
+  List<BoardWord> _boardWords = const [];
+  final TextEditingController _compose = TextEditingController();
+
   @override
   void initState() {
     super.initState();
+    BoardStore().load().then((words) {
+      if (mounted && words.isNotEmpty) setState(() => _boardWords = words);
+    });
     WidgetsBinding.instance.addPostFrameCallback(
         (_) => _speech.speak('איזו תמונה נבנה? בחרו רקע'));
   }
@@ -116,6 +132,7 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
   @override
   void dispose() {
     _speech.dispose();
+    _compose.dispose();
     super.dispose();
   }
 
@@ -136,43 +153,76 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
     });
   }
 
-  /// The door out, here too: anything the palette doesn't have can be
-  /// written — and lands on the picture as a word.
-  Future<void> _addCustom() async {
+  /// The door out, here too — through the BOARD, not a keyboard: compose
+  /// anything from your words and it lands on the picture.
+  void _addCustom() {
     _speech.speak('משהו אחר');
-    final controller = TextEditingController();
-    final text = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('מה להוסיף לתמונה?'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          style: const TextStyle(fontSize: 20),
-          onSubmitted: (v) => Navigator.of(dialogContext).pop(v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('ביטול'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-            child: const Text('הוספה'),
-          ),
-        ],
-      ),
+    _compose.clear();
+    showBoardComposer(
+      context,
+      words: _boardWords,
+      controller: _compose,
+      onSubmit: (text) {
+        final t = text.trim();
+        if (t.isEmpty) return;
+        _addElement(t, t);
+      },
     );
-    controller.dispose();
-    final t = (text ?? '').trim();
-    if (t.isEmpty) return;
-    _addElement(t, t);
   }
 
   void _undo() {
     if (_placed.isEmpty) return;
     _speech.speak('מחקנו את ${_placed.last.label}');
     setState(() => _placed.removeLast());
+  }
+
+  /// Long-press: "what do YOU call this?" — the user's own name wins, in
+  /// speech and in the generated picture alike. Naming goes through the
+  /// BOARD (their words and pictures), never only a keyboard — the board
+  /// sheet is how someone without typing gives things their name.
+  void _rename(_Placed p) {
+    _speech.speak('איך קוראים לזה אצלך?');
+    _compose.clear();
+    showBoardComposer(
+      context,
+      words: _boardWords,
+      controller: _compose,
+      onSubmit: (text) {
+        final t = text.trim();
+        if (t.isEmpty) return;
+        setState(() => p.label = t);
+        _speech.speak(t);
+      },
+    );
+  }
+
+  /// The scene, in the user's own words — this is the generator's prompt.
+  String get _scenePrompt {
+    final names = _placed.map((p) => p.label).join(', ');
+    return 'איור דיגיטלי רך, צבעוני ושליו: '
+        'סצנה ב${_bg!.name}${names.isEmpty ? '' : ', ובה $names'}. '
+        'בלי טקסט בתמונה.';
+  }
+
+  Future<void> _makeReal() async {
+    if (_bg == null || _imagining) return;
+    _speech.speak('מציירים את התמונה שלך, רגע...');
+    setState(() => _imagining = true);
+    try {
+      final bytes = await ImagineService().imagine(_scenePrompt);
+      if (!mounted) return;
+      setState(() {
+        _imagining = false;
+        _realImage = bytes;
+      });
+      _speech.speak('הנה התמונה שלך!');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _imagining = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('לא הצלחנו לצייר הפעם: $e')),
+      );
+    }
   }
 
   Future<void> _finish() async {
@@ -328,6 +378,7 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
                           top: p.dy * box.maxHeight - 28,
                           child: GestureDetector(
                             onTap: () => _speech.speak(p.label),
+                            onLongPress: () => _rename(p),
                             onPanUpdate: (d) => setState(() {
                               p.dx = (p.dx + d.delta.dx / box.maxWidth)
                                   .clamp(0.05, 0.95);
@@ -337,6 +388,43 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
                             child: Text(
                               p.emoji,
                               style: const TextStyle(fontSize: 56),
+                            ),
+                          ),
+                        ),
+                      // The REAL generated picture, painted over the sketch;
+                      // the X returns to editing.
+                      if (_realImage != null) ...[
+                        Positioned.fill(
+                          child: Image.memory(_realImage!, fit: BoxFit.cover),
+                        ),
+                        Positioned(
+                          top: 6,
+                          left: 6,
+                          child: IconButton.filledTonal(
+                            tooltip: 'חזרה לעריכה',
+                            icon: const Icon(Icons.edit_rounded),
+                            onPressed: () =>
+                                setState(() => _realImage = null),
+                          ),
+                        ),
+                      ],
+                      if (_imagining)
+                        Positioned.fill(
+                          child: Container(
+                            color: Colors.black38,
+                            alignment: Alignment.center,
+                            child: const Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                CircularProgressIndicator(
+                                    color: Colors.white),
+                                SizedBox(height: 12),
+                                Text(
+                                  'מציירים את התמונה שלך... 🎨',
+                                  style: TextStyle(
+                                      color: Colors.white, fontSize: 18),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -397,11 +485,28 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: BigButton(
-            label: 'סיימנו — לשמור את התמונה',
-            emoji: '🖼️',
-            enabled: _placed.isNotEmpty,
-            onTap: _finish,
+          child: Row(
+            children: [
+              if (ImagineService.available) ...[
+                Expanded(
+                  child: BigButton(
+                    label: 'לצייר באמת',
+                    emoji: '🎨',
+                    enabled: _placed.isNotEmpty && !_imagining,
+                    onTap: _makeReal,
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ],
+              Expanded(
+                child: BigButton(
+                  label: 'סיימנו',
+                  emoji: '🖼️',
+                  enabled: _placed.isNotEmpty,
+                  onTap: _finish,
+                ),
+              ),
+            ],
           ),
         ),
       ],
