@@ -136,6 +136,39 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
     });
   }
 
+  /// The door out, here too: anything the palette doesn't have can be
+  /// written — and lands on the picture as a word.
+  Future<void> _addCustom() async {
+    _speech.speak('משהו אחר');
+    final controller = TextEditingController();
+    final text = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('מה להוסיף לתמונה?'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(fontSize: 20),
+          onSubmitted: (v) => Navigator.of(dialogContext).pop(v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('ביטול'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: const Text('הוספה'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    final t = (text ?? '').trim();
+    if (t.isEmpty) return;
+    _addElement(t, t);
+  }
+
   void _undo() {
     if (_placed.isEmpty) return;
     _speech.speak('מחקנו את ${_placed.last.label}');
@@ -254,8 +287,14 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
     return Column(
       children: [
         // The canvas — the creation itself, growing with every tap.
-        Padding(
+        // Expanded + AspectRatio-inside-Center: the picture takes its share
+        // of the screen and never pushes the palette and finish button off
+        // (a wide window once swallowed the whole screen with canvas).
+        Expanded(
+          flex: 5,
+          child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+          child: Center(
           child: AspectRatio(
             aspectRatio: 4 / 3,
             child: LayoutBuilder(
@@ -307,6 +346,8 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
               ),
             ),
           ),
+          ),
+          ),
         ),
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 4),
@@ -341,16 +382,36 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
           ),
         ),
         Expanded(
-          child: GridView.count(
+          flex: 4,
+          child: GridView.extent(
             padding: const EdgeInsets.all(12),
-            crossAxisCount: 4,
+            maxCrossAxisExtent: 110,
             mainAxisSpacing: 8,
             crossAxisSpacing: 8,
             children: [
+              _paletteTile('✨', 'משהו אחר', _addCustom),
               for (final (emoji, label) in _kElements[_group].items)
-                InkWell(
+                _paletteTile(emoji, label, () => _addElement(emoji, label)),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: BigButton(
+            label: 'סיימנו — לשמור את התמונה',
+            emoji: '🖼️',
+            enabled: _placed.isNotEmpty,
+            onTap: _finish,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _paletteTile(String emoji, String label, VoidCallback onTap) {
+    return InkWell(
                   borderRadius: BorderRadius.circular(14),
-                  onTap: () => _addElement(emoji, label),
+                  onTap: onTap,
                   child: Container(
                     decoration: BoxDecoration(
                       color: AppColors.surface,
@@ -374,20 +435,6 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
                       ],
                     ),
                   ),
-                ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: BigButton(
-            label: 'סיימנו — לשמור את התמונה',
-            emoji: '🖼️',
-            enabled: _placed.isNotEmpty,
-            onTap: _finish,
-          ),
-        ),
-      ],
-    );
+                );
   }
 }

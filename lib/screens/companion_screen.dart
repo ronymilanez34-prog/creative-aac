@@ -837,6 +837,13 @@ class _OptionsArea extends StatelessWidget {
                   big: lowEnergy,
                   onTap: () => onChip(options[i].label, i),
                 ),
+              // The always-there door out. Every choice set, every screen,
+              // same spot: "something else" is a first-class option.
+              _Chip(
+                option: const ChipOption(emoji: '✨', label: 'משהו אחר'),
+                big: lowEnergy,
+                onTap: () => onChip('משהו אחר', -1),
+              ),
             ],
           ),
           // The free-text row is hidden in low-energy mode — unless there are

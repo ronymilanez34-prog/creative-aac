@@ -70,13 +70,41 @@ class _BuildStoryScreenState extends State<BuildStoryScreen> {
 
   void _speakTitle() => _speech.speak(_titles[_step]);
 
-  List<Choice> get _options => switch (_step) {
-        0 => kHeroes,
-        1 => kPlaces,
-        _ => kFollowUps[_threadId] ?? kEvents,
-      };
+  /// The always-there door out — every choice set ends with it.
+  static const Choice _kOther =
+      Choice(id: '__other', label: 'משהו אחר', emoji: '✨');
+
+  List<Choice> get _options => [
+        ...switch (_step) {
+          0 => kHeroes,
+          1 => kPlaces,
+          _ => kFollowUps[_threadId] ?? kEvents,
+        },
+        _kOther,
+      ];
 
   void _select(Choice c) {
+    if (c.id == '__other') {
+      // "Something else" opens the board composer: compose your own hero,
+      // place, or plot beat from pictures (or the keyboard in the loop).
+      _speech.speak('משהו אחר');
+      showBoardComposer(
+        context,
+        words: _boardWords,
+        controller: _idea,
+        onSubmit: (text) {
+          switch (_step) {
+            case 0:
+              _select(Choice(id: 'custom_hero', label: text, emoji: '✨'));
+            case 1:
+              _select(Choice(id: 'custom_place', label: text, emoji: '✨'));
+            default:
+              _addIdea(text);
+          }
+        },
+      );
+      return;
+    }
     _speech.speak(c.label);
     switch (_step) {
       case 0:
