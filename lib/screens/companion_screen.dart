@@ -437,40 +437,32 @@ class _CompanionBubble extends StatelessWidget {
                         color: AppColors.text,
                       ),
                     )
+                  // A quiet reading strip — the companion's SPEECH, styled
+                  // nothing like the choice chips so it never reads as
+                  // buttons to press. Tap only speaks the word.
                   : Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                      spacing: 14,
+                      runSpacing: 10,
                       children: [
                         for (final s in symbols)
-                          InkWell(
-                            borderRadius: BorderRadius.circular(12),
+                          GestureDetector(
                             onTap: onSymbolTap == null
                                 ? null
                                 : () => onSymbolTap!(s.word),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: AppColors.surface,
-                                borderRadius: BorderRadius.circular(12),
-                                border:
-                                    Border.all(color: AppColors.border),
-                              ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(s.emoji,
-                                      style: const TextStyle(fontSize: 26)),
-                                  Text(
-                                    s.word,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w700,
-                                      color: AppColors.text,
-                                    ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(s.emoji,
+                                    style: const TextStyle(fontSize: 28)),
+                                Text(
+                                  s.word,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.text,
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
                       ],
