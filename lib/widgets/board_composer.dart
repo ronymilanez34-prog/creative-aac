@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/core_vocabulary.dart';
 import '../models/board.dart';
+import '../services/speech.dart';
 import '../theme.dart';
 import 'board_image.dart';
 
@@ -47,11 +48,24 @@ class _BoardComposerSheet extends StatefulWidget {
 }
 
 class _BoardComposerSheetState extends State<_BoardComposerSheet> {
+  final Speech _speech = Speech();
+
   /// null = category grid; -1 = the imported board; otherwise an index
   /// into [kCoreVocabulary].
   int? _open;
 
-  void _addWord(String label) {
+  @override
+  void dispose() {
+    _speech.dispose();
+    super.dispose();
+  }
+
+  /// Adds [label] to the sentence and speaks the right thing: an imported
+  /// button's spoken form when it has one ("מים" may speak "אני רוצה מים"),
+  /// otherwise the label itself. Every tap is heard — auditory feedback is
+  /// part of AAC, not a nicety.
+  void _addWord(String label, {String? speak}) {
+    _speech.speak(speak ?? label);
     final current = widget.controller.text.trim();
     widget.controller.text = current.isEmpty ? label : '$current $label';
   }
@@ -123,10 +137,15 @@ class _BoardComposerSheetState extends State<_BoardComposerSheet> {
   Widget _categories() {
     final tiles = <Widget>[
       if (widget.imported.isNotEmpty)
-        _tile('⭐', 'הלוח שלי', () => setState(() => _open = -1)),
+        _tile('⭐', 'הלוח שלי', () {
+          _speech.speak('הלוח שלי');
+          setState(() => _open = -1);
+        }),
       for (var i = 0; i < kCoreVocabulary.length; i++)
-        _tile(kCoreVocabulary[i].emoji, kCoreVocabulary[i].name,
-            () => setState(() => _open = i)),
+        _tile(kCoreVocabulary[i].emoji, kCoreVocabulary[i].name, () {
+          _speech.speak(kCoreVocabulary[i].name);
+          setState(() => _open = i);
+        }),
     ];
     return GridView.count(
       shrinkWrap: true,
@@ -152,7 +171,7 @@ class _BoardComposerSheetState extends State<_BoardComposerSheet> {
           final word = widget.imported[i];
           return InkWell(
             borderRadius: BorderRadius.circular(12),
-            onTap: () => _addWord(word.label),
+            onTap: () => _addWord(word.label, speak: word.spokenText),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
