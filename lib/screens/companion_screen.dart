@@ -44,6 +44,13 @@ class _CompanionScreenState extends State<CompanionScreen> {
   final List<CreationPiece> _creation = [];
   late CompanionTurn _turn;
 
+  /// The visible conversation — the user's choices, the companion's
+  /// replies, and each piece added to the creation. A choice that vanishes
+  /// on tap leaves no sense of dialogue or authorship; the thread is where
+  /// "I said → it answered → my creation grew" becomes visible.
+  final List<_ThreadItem> _thread = [];
+  final ScrollController _threadScroll = ScrollController();
+
   /// The chips in the order actually shown. A label seen before keeps its
   /// slot (motor consistency); first appearances are randomized, which keeps
   /// the position-bias signal alive. See [ChipSlots].
@@ -84,6 +91,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
   void initState() {
     super.initState();
     _turn = widget.service.opening();
+    _thread.add(_ThreadItem.companion(_turn.say, _turn.saySymbols));
     _displayOptions = _chipSlots.arrange(_turn.options);
     _optionsShownAt = DateTime.now();
     BoardStore().load().then((words) {
@@ -99,6 +107,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
     _speech.dispose();
     _input.dispose();
     _creationScroll.dispose();
+    _threadScroll.dispose();
     widget.service.dispose();
     super.dispose();
   }
@@ -125,11 +134,13 @@ class _CompanionScreenState extends State<CompanionScreen> {
   void _applyTurn(CompanionTurn turn, {bool speak = true}) {
     setState(() {
       _turn = turn;
+      _thread.add(_ThreadItem.companion(turn.say, turn.saySymbols));
       _displayOptions = _chipSlots.arrange(turn.options);
       _optionsShownAt = DateTime.now();
       _failed = false;
       _busy = false;
     });
+    _scrollThreadToEnd();
     if (speak) _speak(turn.say);
   }
 
@@ -138,12 +149,18 @@ class _CompanionScreenState extends State<CompanionScreen> {
     required String kind, // 'chip' | 'text' | 'confirm'
     int chosenIndex = -1,
     List<String>? shownOptions,
+    String emoji = '',
   }) async {
     final t = text.trim();
     if (t.isEmpty || _busy) return;
     _input.clear();
 
     final source = _partnerArmed ? InputSource.partner : InputSource.user;
+    // The choice enters the visible conversation immediately — dialogue
+    // means seeing what you said, not watching it vanish.
+    setState(() => _thread.add(_ThreadItem.user(t, emoji: emoji,
+        isPartner: source == InputSource.partner)));
+    _scrollThreadToEnd();
     final latency =
         DateTime.now().difference(_optionsShownAt).inMilliseconds;
     unawaited(_log.logSelection(
@@ -201,6 +218,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
           source: source,
           questions: next.questions,
         ));
+        _thread.add(_ThreadItem.creation(next.creationUpdate!.trim()));
       }
       _applyTurn(next);
       _scrollCreationToEnd();
@@ -245,6 +263,17 @@ class _CompanionScreenState extends State<CompanionScreen> {
     setState(() => _activeQuickFire = q);
     _quickFireTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) setState(() => _activeQuickFire = null);
+    });
+  }
+
+  void _scrollThreadToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_threadScroll.hasClients) return;
+      _threadScroll.animateTo(
+        _threadScroll.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
     });
   }
 
@@ -303,15 +332,20 @@ class _CompanionScreenState extends State<CompanionScreen> {
             if (_activeQuickFire != null)
               _QuickFireBanner(fire: _activeQuickFire!),
             _CreationCard(text: _creationText, scroll: _creationScroll),
-            _CompanionBubble(
-              text: _turn.say,
-              symbols: _turn.saySymbols,
-              onSpeak: () => _speak(_turn.say),
-              onSymbolTap: (w) => _speak(w),
+            Expanded(
+              child: ListView.separated(
+                controller: _threadScroll,
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                itemCount: _thread.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (_, i) => _ThreadBubble(
+                  item: _thread[i],
+                  onSpeak: _speak,
+                ),
+              ),
             ),
             if (_partnerMode && (_turn.partnerTip?.trim().isNotEmpty ?? false))
               _PartnerTip(text: _turn.partnerTip!.trim()),
-            const Spacer(),
             if (_busy)
               const Padding(
                 padding: EdgeInsets.all(12),
@@ -342,8 +376,12 @@ class _CompanionScreenState extends State<CompanionScreen> {
                 partnerMode: _partnerMode,
                 partnerArmed: _partnerArmed,
                 onPartnerArmed: (v) => setState(() => _partnerArmed = v),
-                onChip: (label, index) =>
-                    _send(label, kind: 'chip', chosenIndex: index),
+                onChip: (label, index) => _send(label,
+                    kind: 'chip',
+                    chosenIndex: index,
+                    emoji: index >= 0 && index < options.length
+                        ? options[index].emoji
+                        : ''),
                 onSubmit: (text) => _send(text, kind: 'text'),
               ),
             QuickBar(onFire: _onQuickFire),
@@ -365,7 +403,7 @@ class _CreationCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.all(12),
       padding: const EdgeInsets.all(16),
-      constraints: const BoxConstraints(minHeight: 90, maxHeight: 220),
+      constraints: const BoxConstraints(minHeight: 72, maxHeight: 150),
       width: double.infinity,
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -392,6 +430,133 @@ class _CreationCard extends StatelessWidget {
               ),
             ),
     );
+  }
+}
+
+/// One entry in the visible conversation.
+class _ThreadItem {
+  const _ThreadItem._(this.kind, this.text, this.symbols, this.emoji);
+
+  factory _ThreadItem.companion(String say, List<SaySymbol> symbols) =>
+      _ThreadItem._(_ThreadKind.companion, say, symbols, '');
+
+  factory _ThreadItem.user(String text,
+          {String emoji = '', bool isPartner = false}) =>
+      _ThreadItem._(
+          isPartner ? _ThreadKind.partner : _ThreadKind.user, text, const [], emoji);
+
+  factory _ThreadItem.creation(String text) =>
+      _ThreadItem._(_ThreadKind.creation, text, const [], '');
+
+  final _ThreadKind kind;
+  final String text;
+  final List<SaySymbol> symbols;
+  final String emoji;
+}
+
+enum _ThreadKind { user, partner, companion, creation }
+
+/// Renders one conversation entry: the companion's bubble on one side, the
+/// user's choice on the other (their color, their emoji), a partner's
+/// demonstration clearly labeled, and each piece added to the creation as a
+/// small highlighted moment — the dialogue made visible.
+class _ThreadBubble extends StatelessWidget {
+  const _ThreadBubble({required this.item, required this.onSpeak});
+
+  final _ThreadItem item;
+  final ValueChanged<String> onSpeak;
+
+  @override
+  Widget build(BuildContext context) {
+    switch (item.kind) {
+      case _ThreadKind.companion:
+        return _CompanionBubble(
+          text: item.text,
+          symbols: item.symbols,
+          onSpeak: () => onSpeak(item.text),
+          onSymbolTap: onSpeak,
+        );
+      case _ThreadKind.user:
+      case _ThreadKind.partner:
+        final isPartner = item.kind == _ThreadKind.partner;
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (isPartner)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 2),
+                    child: Text(
+                      'הדגמה של השותף',
+                      style:
+                          TextStyle(fontSize: 12, color: AppColors.textSoft),
+                    ),
+                  ),
+                InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () => onSpeak(item.text),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                    constraints: const BoxConstraints(maxWidth: 300),
+                    decoration: BoxDecoration(
+                      color: isPartner ? AppColors.surface : AppColors.primary,
+                      borderRadius: BorderRadius.circular(16),
+                      border: isPartner
+                          ? Border.all(color: AppColors.primary)
+                          : null,
+                    ),
+                    child: Text(
+                      item.emoji.isEmpty
+                          ? item.text
+                          : '${item.emoji} ${item.text}',
+                      style: TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w700,
+                        color:
+                            isPartner ? AppColors.text : Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      case _ThreadKind.creation:
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.accent.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '📄 נוסף ליצירה',
+                  style: TextStyle(fontSize: 12.5, color: AppColors.textSoft),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  item.text,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontStyle: FontStyle.italic,
+                    color: AppColors.text,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+    }
   }
 }
 
