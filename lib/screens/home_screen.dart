@@ -7,6 +7,7 @@ import '../services/companion_service.dart';
 import '../services/profile_store.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
+import 'build/build_picture_screen.dart';
 import 'build/build_story_screen.dart';
 import 'companion_screen.dart';
 import 'my_stories_screen.dart';
@@ -101,6 +102,17 @@ class HomeScreen extends StatelessWidget {
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => const BuildStoryScreen(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  BigButton(
+                    label: 'בואו נבנה תמונה',
+                    emoji: '🖼️',
+                    color: AppColors.accent,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const BuildPictureScreen(),
                       ),
                     ),
                   ),
