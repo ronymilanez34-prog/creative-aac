@@ -179,6 +179,30 @@ async function serviceAccessToken() {
   return (await res.json()).access_token;
 }
 
+// Fallback path: the Gemini image model on the global endpoint. Field-tested
+// on this project — every Imagen predict model 404s here, so this is in
+// practice the door that's open.
+const GEMINI_IMAGE_URL =
+  `https://aiplatform.googleapis.com/v1/projects/` +
+  `${process.env.GCLOUD_PROJECT}/locations/global/publishers/google/` +
+  `models/gemini-2.5-flash-image:generateContent`;
+
+function geminiImage(token, prompt, withRatio) {
+  const generationConfig = { responseModalities: ["TEXT", "IMAGE"] };
+  if (withRatio) generationConfig.imageConfig = { aspectRatio: "4:3" };
+  return fetch(GEMINI_IMAGE_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig,
+    }),
+  });
+}
+
 exports.imagineHttp = onRequest(
   { region: REGION, secrets: [APP_KEY], cors: true, timeoutSeconds: 120 },
   async (req, res) => {
@@ -213,21 +237,40 @@ exports.imagineHttp = onRequest(
         // Anything but "model not found" is this model's real answer.
         if (r.status !== 404) break;
       }
-      if (!r.ok) {
-        const detail = await r.text().catch(() => "");
+      if (r.ok) {
+        const payload = await r.json();
+        const b64 = payload?.predictions?.[0]?.bytesBase64Encoded;
+        if (!b64) {
+          res.status(500).json({ error: "לא התקבלה תמונה מהמחולל." });
+          return;
+        }
+        res.status(200).json({ imageB64: b64 });
+        return;
+      }
+      // Imagen is closed to this project — go through the Gemini image
+      // model. If the aspect-ratio config is what's rejected, retry bare.
+      let g = await geminiImage(token, prompt, true);
+      if (g.status === 400) g = await geminiImage(token, prompt, false);
+      if (!g.ok) {
+        const detail = await g.text().catch(() => "");
         res.status(500).json({
-          error: `מחולל התמונות החזיר שגיאה (${r.status}).`,
+          error: `מחולל התמונות החזיר שגיאה (${g.status}).`,
           detail: detail.slice(0, 500),
         });
         return;
       }
-      const payload = await r.json();
-      const b64 = payload?.predictions?.[0]?.bytesBase64Encoded;
-      if (!b64) {
-        res.status(500).json({ error: "לא התקבלה תמונה מהמחולל." });
+      const payload = await g.json();
+      const part = (payload?.candidates?.[0]?.content?.parts || []).find(
+        (p) => p.inlineData && p.inlineData.data
+      );
+      if (!part) {
+        res.status(500).json({
+          error: "לא התקבלה תמונה מהמחולל.",
+          detail: JSON.stringify(payload).slice(0, 300),
+        });
         return;
       }
-      res.status(200).json({ imageB64: b64 });
+      res.status(200).json({ imageB64: part.inlineData.data });
     } catch (err) {
       res.status(500).json({ error: `שגיאה ביצירת התמונה: ${String(err)}` });
     }
