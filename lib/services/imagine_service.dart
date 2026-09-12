@@ -16,7 +16,10 @@ class ImagineService {
 
   static bool get available => kCompanionEndpoint.isNotEmpty;
 
-  Future<Uint8List> imagine(String prompt) async {
+  /// [baseImage]: when given, the backend EDITS this picture per [prompt]
+  /// instead of painting a new one — the creation keeps growing instead of
+  /// starting over.
+  Future<Uint8List> imagine(String prompt, {Uint8List? baseImage}) async {
     final res = await http
         .post(
           Uri.parse(endpoint),
@@ -24,7 +27,10 @@ class ImagineService {
             'content-type': 'application/json',
             if (kCompanionAppKey.isNotEmpty) 'x-app-key': kCompanionAppKey,
           },
-          body: jsonEncode({'prompt': prompt}),
+          body: jsonEncode({
+            'prompt': prompt,
+            if (baseImage != null) 'baseImageB64': base64Encode(baseImage),
+          }),
         )
         .timeout(const Duration(seconds: 90));
     if (res.statusCode != 200) {

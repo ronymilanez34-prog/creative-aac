@@ -106,6 +106,25 @@ class _Placed {
   double dy; // 0..1 down the canvas
 }
 
+/// A look for the generated picture. The prompt fragment leads the scene
+/// description sent to the generator.
+class _Style {
+  const _Style(this.emoji, this.name, this.prompt);
+
+  final String emoji;
+  final String name;
+  final String prompt;
+}
+
+const _kStyles = [
+  _Style('🎨', 'ציור רך', 'איור דיגיטלי רך, צבעוני ושליו'),
+  _Style('📷', 'כמו צילום', 'צילום מציאותי, יפה ומואר'),
+  _Style('🖍️', 'ציור ילדים', 'ציור עליז בצבעי עפרון, פשוט ושמח'),
+  _Style('💥', 'קומיקס', 'קומיקס צבעוני עם קווים ברורים'),
+  _Style('🌊', 'צבעי מים', 'ציור עדין ורגוע בצבעי מים'),
+  _Style('👾', 'משחק', 'פיקסל ארט צבעוני של משחק מחשב'),
+];
+
 class _BuildPictureScreenState extends State<BuildPictureScreen> {
   final Speech _speech = Speech();
   final Random _rand = Random();
@@ -116,6 +135,15 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
 
   bool _imagining = false;
   Uint8List? _realImage;
+
+  /// The look of the generated picture — the creator's choice, like
+  /// everything else here.
+  _Style _style = _kStyles.first;
+
+  /// What the current real picture was painted from — so the next 🎨 tap
+  /// knows whether to EDIT it (new things, new style) or paint fresh.
+  List<String> _paintedLabels = const [];
+  _Style? _paintedStyle;
 
   /// Tap selects (highlight ring + visible action bar) — long-press proved
   /// unintuitive and motorically inaccessible; actions must be seen.
@@ -203,9 +231,19 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
   /// The scene, in the user's own words — this is the generator's prompt.
   String get _scenePrompt {
     final names = _placed.map((p) => p.label).join(', ');
-    return 'איור דיגיטלי רך, צבעוני ושליו: '
+    return '${_style.prompt}: '
         'סצנה ב${_bg!.name}${names.isEmpty ? '' : ', ובה $names'}. '
         'בלי טקסט בתמונה.';
+  }
+
+  /// Things added since the picture was painted (multiset diff by label).
+  List<String> get _addedSincePainted {
+    final prev = List<String>.from(_paintedLabels);
+    final added = <String>[];
+    for (final p in _placed) {
+      if (!prev.remove(p.label)) added.add(p.label);
+    }
+    return added;
   }
 
   Future<void> _makeReal() async {
@@ -213,11 +251,27 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
     _speech.speak('מציירים את התמונה שלך, רגע...');
     setState(() => _imagining = true);
     try {
-      final bytes = await ImagineService().imagine(_scenePrompt);
+      // A picture already exists → EDIT it, so the creation keeps growing
+      // instead of starting over: add the new things, restyle if asked.
+      final added = _addedSincePainted;
+      final restyle = _paintedStyle != null && _paintedStyle != _style;
+      final editing = _realImage != null && (added.isNotEmpty || restyle);
+      final prompt = editing
+          ? [
+              if (added.isNotEmpty) 'הוסף לתמונה: ${added.join(', ')}.',
+              if (restyle) 'צייר את כל התמונה מחדש בסגנון ${_style.prompt}.',
+              if (!restyle) 'שמור על שאר התמונה בדיוק כפי שהיא.',
+              'בלי טקסט בתמונה.',
+            ].join(' ')
+          : _scenePrompt;
+      final bytes = await ImagineService()
+          .imagine(prompt, baseImage: editing ? _realImage : null);
       if (!mounted) return;
       setState(() {
         _imagining = false;
         _realImage = bytes;
+        _paintedLabels = _placed.map((p) => p.label).toList();
+        _paintedStyle = _style;
       });
       _speech.speak('הנה התמונה שלך!');
     } catch (e) {
@@ -501,11 +555,13 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
             ),
           )
         else
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 4),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
             child: Text(
-              'מה נוסיף לתמונה? לחיצה על דבר בתמונה — בוחרת אותו',
-              style: TextStyle(fontSize: 16, color: AppColors.textSoft),
+              _realImage != null && _addedSincePainted.isNotEmpty
+                  ? 'בציור הבא יתווספו: ${_addedSincePainted.join(', ')} — לחצו 🎨'
+                  : 'מה נוסיף לתמונה? לחיצה על דבר בתמונה — בוחרת אותו',
+              style: const TextStyle(fontSize: 16, color: AppColors.textSoft),
             ),
           ),
         // Category tabs.
@@ -547,6 +603,30 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
             ],
           ),
         ),
+        // The picture's look — the creator picks the style, chip-style.
+        if (ImagineService.available)
+          SizedBox(
+            height: 44,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              children: [
+                for (final s in _kStyles)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 3),
+                    child: ChoiceChip(
+                      selected: _style == s,
+                      label: Text('${s.emoji} ${s.name}',
+                          style: const TextStyle(fontSize: 15)),
+                      onSelected: (_) {
+                        _speech.speak(s.name);
+                        setState(() => _style = s);
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
           child: Row(
@@ -554,7 +634,7 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
               if (ImagineService.available) ...[
                 Expanded(
                   child: BigButton(
-                    label: 'לצייר באמת',
+                    label: _realImage == null ? 'לצייר באמת' : 'לצייר שוב',
                     emoji: '🎨',
                     enabled: _placed.isNotEmpty && !_imagining,
                     onTap: _makeReal,

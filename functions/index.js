@@ -225,9 +225,16 @@ const GEMINI_IMAGE_URL =
   `${process.env.GCLOUD_PROJECT}/locations/global/publishers/google/` +
   `models/gemini-2.5-flash-image:generateContent`;
 
-function geminiImage(token, prompt, withRatio) {
+function geminiImage(token, prompt, withRatio, baseImageB64) {
   const generationConfig = { responseModalities: ["TEXT", "IMAGE"] };
   if (withRatio) generationConfig.imageConfig = { aspectRatio: "4:3" };
+  const parts = [];
+  // With a base image the model EDITS it per the prompt instead of
+  // painting from scratch — the creation keeps growing.
+  if (baseImageB64) {
+    parts.push({ inlineData: { mimeType: "image/png", data: baseImageB64 } });
+  }
+  parts.push({ text: prompt });
   return fetch(GEMINI_IMAGE_URL, {
     method: "POST",
     headers: {
@@ -235,7 +242,7 @@ function geminiImage(token, prompt, withRatio) {
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      contents: [{ role: "user", parts }],
       generationConfig,
     }),
   });
@@ -257,38 +264,45 @@ exports.imagineHttp = onRequest(
       res.status(400).json({ error: "חסר תיאור לתמונה (prompt)." });
       return;
     }
+    // Optional picture to EDIT (base64, ~8MB decoded cap) — editing is a
+    // Gemini capability, so its presence skips the Imagen attempt.
+    let baseImageB64 = String((req.body || {}).baseImageB64 || "").trim();
+    if (baseImageB64.length > 11_000_000) baseImageB64 = "";
     try {
       const token = await serviceAccessToken();
-      let r = null;
-      for (const model of IMAGEN_MODELS) {
-        r = await fetch(imagenUrl(model), {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            instances: [{ prompt }],
-            parameters: { sampleCount: 1, aspectRatio: "4:3" },
-          }),
-        });
-        // Anything but "model not found" is this model's real answer.
-        if (r.status !== 404) break;
-      }
-      if (r.ok) {
-        const payload = await r.json();
-        const b64 = payload?.predictions?.[0]?.bytesBase64Encoded;
-        if (!b64) {
-          res.status(500).json({ error: "לא התקבלה תמונה מהמחולל." });
+      if (!baseImageB64) {
+        let r = null;
+        for (const model of IMAGEN_MODELS) {
+          r = await fetch(imagenUrl(model), {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              instances: [{ prompt }],
+              parameters: { sampleCount: 1, aspectRatio: "4:3" },
+            }),
+          });
+          // Anything but "model not found" is this model's real answer.
+          if (r.status !== 404) break;
+        }
+        if (r.ok) {
+          const payload = await r.json();
+          const b64 = payload?.predictions?.[0]?.bytesBase64Encoded;
+          if (!b64) {
+            res.status(500).json({ error: "לא התקבלה תמונה מהמחולל." });
+            return;
+          }
+          res.status(200).json({ imageB64: b64 });
           return;
         }
-        res.status(200).json({ imageB64: b64 });
-        return;
       }
-      // Imagen is closed to this project — go through the Gemini image
-      // model. If the aspect-ratio config is what's rejected, retry bare.
-      let g = await geminiImage(token, prompt, true);
-      if (g.status === 400) g = await geminiImage(token, prompt, false);
+      // Imagen is closed to this project (and can't edit) — go through the
+      // Gemini image model. If the aspect-ratio config is what's rejected,
+      // retry bare.
+      let g = await geminiImage(token, prompt, true, baseImageB64);
+      if (g.status === 400) g = await geminiImage(token, prompt, false, baseImageB64);
       if (!g.ok) {
         const detail = await g.text().catch(() => "");
         res.status(500).json({
