@@ -15,7 +15,10 @@
  *                          closed pilot; revisit auth before any open release.
  *
  * Request data:
- *   { profile, creationSoFar, userInput, inputSource, lowEnergy, paceHint }
+ *   { profile, creationSoFar, history, userInput, inputSource, lowEnergy,
+ *     paceHint }
+ *  • history: recent conversation as [{role: "user"|"assistant", text}] —
+ *    the model is stateless, so this is its only memory of the dialogue.
  *  • inputSource: "user" (default) | "partner" — a partner's modelling tap is
  *    marked so the model never treats it as the user's own choice.
  *  • lowEnergy: true → the prompt switches to the low-energy variant
@@ -44,9 +47,34 @@ const MODEL = "claude-haiku-4-5-20251001";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const REGION = "europe-west1"; // keep data in-region; adjust as needed
 
+/**
+ * Untrusted client history → a valid Messages array. Caps size, coerces
+ * strings, forces roles to user/assistant, and merges consecutive same-role
+ * entries (the API requires alternation and a user-role opener).
+ */
+function sanitizeHistory(history) {
+  if (!Array.isArray(history)) return [];
+  const merged = [];
+  for (const m of history.slice(-20)) {
+    const text = String((m && m.text) || "").trim().slice(0, 2000);
+    if (!text) continue;
+    const role = m && m.role === "assistant" ? "assistant" : "user";
+    const last = merged[merged.length - 1];
+    if (last && last.role === role) {
+      last.content += `\n${text}`;
+    } else {
+      merged.push({ role, content: text });
+    }
+  }
+  // The API requires the first message to be from the user; the companion's
+  // scripted opener adds nothing the model can't infer — drop it.
+  while (merged.length && merged[0].role === "assistant") merged.shift();
+  return merged;
+}
+
 /** Core: one companion turn. Throws HttpsError on failure. */
 async function runCompanionTurn(data) {
-  const { profile, creationSoFar, userInput, inputSource, lowEnergy, paceHint } =
+  const { profile, creationSoFar, history, userInput, inputSource, lowEnergy, paceHint } =
     data || {};
   if (!userInput || !String(userInput).trim()) {
     throw new HttpsError("invalid-argument", "חסר קלט מהמשתמש (userInput).");
@@ -66,6 +94,16 @@ async function runCompanionTurn(data) {
       ? `[הדגמה של השותף/מלווה — לא בחירה של המשתמש]: ${String(userInput)}`
       : String(userInput);
 
+  // The recent dialogue rides in as real conversation turns, so the model
+  // remembers what is being built and never restarts mid-creation.
+  const messages = sanitizeHistory(history);
+  const last = messages[messages.length - 1];
+  if (last && last.role === "user") {
+    last.content += `\n${message}`;
+  } else {
+    messages.push({ role: "user", content: message });
+  }
+
   let res;
   try {
     res = await fetch(ANTHROPIC_URL, {
@@ -80,7 +118,7 @@ async function runCompanionTurn(data) {
         max_tokens: 1024,
         temperature: 0.7,
         system,
-        messages: [{ role: "user", content: message }],
+        messages,
       }),
     });
   } catch (err) {

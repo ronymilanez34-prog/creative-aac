@@ -47,6 +47,7 @@ class ClaudeCompanionService implements CompanionService {
   Future<CompanionTurn> turn(
     String userInput, {
     String creationSoFar = '',
+    List<TurnMessage> history = const [],
     InputSource source = InputSource.user,
     bool lowEnergy = false,
     String? paceHint,
@@ -61,6 +62,11 @@ class ClaudeCompanionService implements CompanionService {
           body: jsonEncode({
             'profile': profileText,
             'creationSoFar': creationSoFar,
+            // The recent conversation rides along on every turn — the model
+            // is stateless, so this IS its memory of the dialogue.
+            'history': [
+              for (final m in history) {'role': m.role, 'text': m.text},
+            ],
             'userInput': userInput,
             'inputSource': source == InputSource.partner ? 'partner' : 'user',
             'lowEnergy': lowEnergy,

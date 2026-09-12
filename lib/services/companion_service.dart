@@ -1,5 +1,9 @@
 import '../models/companion.dart';
 
+/// One prior conversation message, sent to the backend so the model keeps
+/// the live thread — role is 'user' or 'assistant'.
+typedef TurnMessage = ({String role, String text});
+
 /// Produces companion turns. The UI depends only on this interface, so the
 /// mock (demo) and the real Claude-backed implementation are interchangeable.
 abstract class CompanionService {
@@ -10,6 +14,9 @@ abstract class CompanionService {
   ///
   /// [creationSoFar] is the accumulated creation text (the service is
   /// stateless about it — the screen owns the creation).
+  /// [history] is the recent visible conversation (without the current
+  /// input) — without it the model has no memory between turns and loses
+  /// the thread of what is being built.
   /// [source] marks a partner's modelling tap so it is never treated as the
   /// user's own choice. [lowEnergy] asks for the reduced, calmer variant.
   /// [paceHint] is the live pace signal ('flowing' | 'hesitant' | null),
@@ -17,6 +24,7 @@ abstract class CompanionService {
   Future<CompanionTurn> turn(
     String userInput, {
     String creationSoFar = '',
+    List<TurnMessage> history = const [],
     InputSource source = InputSource.user,
     bool lowEnergy = false,
     String? paceHint,
@@ -53,6 +61,7 @@ class MockCompanionService implements CompanionService {
   Future<CompanionTurn> turn(
     String userInput, {
     String creationSoFar = '',
+    List<TurnMessage> history = const [],
     InputSource source = InputSource.user,
     bool lowEnergy = false,
     String? paceHint,

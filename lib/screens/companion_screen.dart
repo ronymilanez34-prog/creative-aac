@@ -191,6 +191,37 @@ class _CompanionScreenState extends State<CompanionScreen> {
     await _performTurn(_lastInput, _lastSource);
   }
 
+  /// The visible conversation, translated for the backend: what the user and
+  /// companion said recently. Without this the model has no memory at all
+  /// between turns — it would lose the thread of what is being built.
+  List<TurnMessage> _historyForBackend(String currentInput) {
+    final items = List<_ThreadItem>.from(_thread);
+    // The current input was already appended as a bubble — don't send it
+    // twice (it travels separately as userInput).
+    if (items.isNotEmpty &&
+        (items.last.kind == _ThreadKind.user ||
+            items.last.kind == _ThreadKind.partner) &&
+        items.last.text == currentInput) {
+      items.removeLast();
+    }
+    final out = <TurnMessage>[];
+    for (final it in items) {
+      switch (it.kind) {
+        case _ThreadKind.user:
+          out.add((role: 'user', text: it.text));
+        case _ThreadKind.partner:
+          out.add((role: 'user', text: '[הדגמה של השותף/מלווה]: ${it.text}'));
+        case _ThreadKind.companion:
+          out.add((role: 'assistant', text: it.text));
+        case _ThreadKind.creation:
+          break; // already carried by creationSoFar
+      }
+    }
+    // The last exchanges carry the live context; older ones are reflected
+    // in the creation text anyway.
+    return out.length > 12 ? out.sublist(out.length - 12) : out;
+  }
+
   /// The single turn pipeline: call the service, append the creation piece
   /// (with provenance and re-reading questions), apply the new turn.
   Future<void> _performTurn(String input, InputSource source) async {
@@ -204,6 +235,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
       final next = await widget.service.turn(
         input,
         creationSoFar: _creationText,
+        history: _historyForBackend(input),
         source: source,
         lowEnergy: _lowEnergy,
         paceHint: _paceHint,
