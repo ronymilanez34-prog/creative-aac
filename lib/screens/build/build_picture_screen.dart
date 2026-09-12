@@ -104,6 +104,9 @@ class _Placed {
   String label;
   double dx; // 0..1 across the canvas
   double dy; // 0..1 down the canvas
+
+  /// Visual size on the canvas (and "small/big" in the generated picture).
+  double scale = 1;
 }
 
 /// A look for the generated picture. The prompt fragment leads the scene
@@ -185,8 +188,9 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
     });
   }
 
-  /// The door out, here too — through the BOARD, not a keyboard: compose
-  /// anything from your words and it lands on the picture.
+  /// The door out, here too — through the BOARD, not a keyboard. Every word
+  /// tap lands on the picture IMMEDIATELY (no sentence bar, no send arrow):
+  /// in a picture, the word is the action.
   void _addCustom() {
     _speech.speak('משהו אחר');
     _compose.clear();
@@ -194,6 +198,7 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
       context,
       words: _boardWords,
       controller: _compose,
+      addEachWord: true,
       onSubmit: (text) {
         final t = text.trim();
         if (t.isEmpty) return;
@@ -228,20 +233,33 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
     );
   }
 
+  /// Where and how big the user placed a thing, in words — dragging and
+  /// resizing on the canvas MEAN something in the generated picture.
+  String _placeDesc(_Placed p) {
+    final h = p.dx < 0.33 ? 'בצד שמאל' : (p.dx > 0.67 ? 'בצד ימין' : 'במרכז');
+    final v = p.dy < 0.35 ? 'למעלה' : (p.dy > 0.65 ? 'למטה' : '');
+    final size = p.scale >= 1.6
+        ? 'גדול מאוד'
+        : (p.scale >= 1.2 ? 'גדול' : (p.scale <= 0.7 ? 'קטן' : ''));
+    final bits =
+        [if (size.isNotEmpty) size, h, if (v.isNotEmpty) v].join(' ');
+    return '${p.label} ($bits)';
+  }
+
   /// The scene, in the user's own words — this is the generator's prompt.
   String get _scenePrompt {
-    final names = _placed.map((p) => p.label).join(', ');
+    final names = _placed.map(_placeDesc).join(', ');
     return '${_style.prompt}: '
         'סצנה ב${_bg!.name}${names.isEmpty ? '' : ', ובה $names'}. '
-        'בלי טקסט בתמונה.';
+        'מקם כל דבר לפי התיאור שלו. בלי טקסט בתמונה.';
   }
 
   /// Things added since the picture was painted (multiset diff by label).
-  List<String> get _addedSincePainted {
+  List<_Placed> get _addedSincePainted {
     final prev = List<String>.from(_paintedLabels);
-    final added = <String>[];
+    final added = <_Placed>[];
     for (final p in _placed) {
-      if (!prev.remove(p.label)) added.add(p.label);
+      if (!prev.remove(p.label)) added.add(p);
     }
     return added;
   }
@@ -258,7 +276,8 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
       final editing = _realImage != null && (added.isNotEmpty || restyle);
       final prompt = editing
           ? [
-              if (added.isNotEmpty) 'הוסף לתמונה: ${added.join(', ')}.',
+              if (added.isNotEmpty)
+                'הוסף לתמונה: ${added.map(_placeDesc).join(', ')}.',
               if (restyle) 'צייר את כל התמונה מחדש בסגנון ${_style.prompt}.',
               if (!restyle) 'שמור על שאר התמונה בדיוק כפי שהיא.',
               'בלי טקסט בתמונה.',
@@ -432,8 +451,8 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
                       ),
                       for (final p in _placed)
                         Positioned(
-                          left: p.dx * box.maxWidth - 28,
-                          top: p.dy * box.maxHeight - 28,
+                          left: p.dx * box.maxWidth - 28 * p.scale,
+                          top: p.dy * box.maxHeight - 28 * p.scale,
                           child: GestureDetector(
                             onTap: () {
                               _speech.speak(p.label);
@@ -449,17 +468,39 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
                             child: Container(
                               decoration: _selected == p
                                   ? BoxDecoration(
-                                      shape: BoxShape.circle,
+                                      borderRadius: BorderRadius.circular(40),
                                       border: Border.all(
                                           color: Colors.white, width: 3),
                                       color: Colors.white24,
                                     )
                                   : null,
                               padding: const EdgeInsets.all(2),
-                              child: Text(
-                                p.emoji,
-                                style: const TextStyle(fontSize: 56),
-                              ),
+                              // A custom word (no emoji for it) shows as a
+                              // sticker chip, not raw giant text.
+                              child: RegExp(r'[א-ת]').hasMatch(p.emoji)
+                                  ? Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white
+                                            .withValues(alpha: 0.92),
+                                        borderRadius:
+                                            BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        p.label,
+                                        style: TextStyle(
+                                          fontSize: 20 * p.scale,
+                                          fontWeight: FontWeight.w800,
+                                          color: AppColors.text,
+                                        ),
+                                      ),
+                                    )
+                                  : Text(
+                                      p.emoji,
+                                      style:
+                                          TextStyle(fontSize: 56 * p.scale),
+                                    ),
                             ),
                           ),
                         ),
@@ -535,6 +576,26 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
                       color: AppColors.primary),
                   onPressed: () => _speech.speak(_selected!.label),
                 ),
+                IconButton(
+                  tooltip: 'קטן יותר',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.remove_circle_outline_rounded),
+                  onPressed: () {
+                    _speech.speak('קטן יותר');
+                    setState(() => _selected!.scale =
+                        (_selected!.scale - 0.25).clamp(0.5, 2.5));
+                  },
+                ),
+                IconButton(
+                  tooltip: 'גדול יותר',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.add_circle_outline_rounded),
+                  onPressed: () {
+                    _speech.speak('גדול יותר');
+                    setState(() => _selected!.scale =
+                        (_selected!.scale + 0.25).clamp(0.5, 2.5));
+                  },
+                ),
                 TextButton.icon(
                   icon: const Icon(Icons.edit_rounded, size: 20),
                   label: const Text('שם חדש', style: TextStyle(fontSize: 16)),
@@ -559,7 +620,7 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Text(
               _realImage != null && _addedSincePainted.isNotEmpty
-                  ? 'בציור הבא יתווספו: ${_addedSincePainted.join(', ')} — לחצו 🎨'
+                  ? 'בציור הבא יתווספו: ${_addedSincePainted.map((p) => p.label).join(', ')} — לחצו 🎨'
                   : 'מה נוסיף לתמונה? לחיצה על דבר בתמונה — בוחרת אותו',
               style: const TextStyle(fontSize: 16, color: AppColors.textSoft),
             ),

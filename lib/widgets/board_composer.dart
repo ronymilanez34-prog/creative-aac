@@ -11,11 +11,15 @@ import 'board_image.dart';
 /// words. Always available (built-in core vocabulary); an imported board
 /// appears as its own first category. Tap adds a word, backspace removes
 /// the last one, send submits. Typing is one way in, never the only one.
+/// [addEachWord]: every word tap submits immediately (no sentence bar, no
+/// send arrow) and the sheet stays open for more — the right mode when each
+/// word IS the action, like dropping things onto a picture.
 void showBoardComposer(
   BuildContext context, {
   List<BoardWord> words = const [],
   required TextEditingController controller,
   required ValueChanged<String> onSubmit,
+  bool addEachWord = false,
 }) {
   showModalBottomSheet<void>(
     context: context,
@@ -28,6 +32,7 @@ void showBoardComposer(
       imported: words,
       controller: controller,
       onSubmit: onSubmit,
+      addEachWord: addEachWord,
     ),
   );
 }
@@ -37,11 +42,13 @@ class _BoardComposerSheet extends StatefulWidget {
     required this.imported,
     required this.controller,
     required this.onSubmit,
+    this.addEachWord = false,
   });
 
   final List<BoardWord> imported;
   final TextEditingController controller;
   final ValueChanged<String> onSubmit;
+  final bool addEachWord;
 
   @override
   State<_BoardComposerSheet> createState() => _BoardComposerSheetState();
@@ -65,6 +72,12 @@ class _BoardComposerSheetState extends State<_BoardComposerSheet> {
   /// otherwise the label itself. Every tap is heard — auditory feedback is
   /// part of AAC, not a nicety.
   void _addWord(String label, {String? speak}) {
+    if (widget.addEachWord) {
+      // Each tap IS the action — submit now, stay open for the next one.
+      // The caller gives the feedback (speech, the thing landing).
+      widget.onSubmit(label);
+      return;
+    }
     _speech.speak(speak ?? label);
     final current = widget.controller.text.trim();
     widget.controller.text = current.isEmpty ? label : '$current $label';
@@ -87,42 +100,57 @@ class _BoardComposerSheetState extends State<_BoardComposerSheet> {
                     onPressed: () => setState(() => _open = null),
                   ),
                 Expanded(
-                  child: ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: widget.controller,
-                    builder: (_, value, __) => Text(
-                      value.text.isEmpty
-                          ? 'לחצו על תמונות כדי להרכיב משפט'
-                          : value.text,
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: value.text.isEmpty
-                            ? AppColors.textSoft
-                            : AppColors.text,
-                      ),
-                    ),
+                  child: widget.addEachWord
+                      ? const Text(
+                          'כל לחיצה מוסיפה לתמונה ✨',
+                          style: TextStyle(
+                              fontSize: 18, color: AppColors.textSoft),
+                        )
+                      : ValueListenableBuilder<TextEditingValue>(
+                          valueListenable: widget.controller,
+                          builder: (_, value, __) => Text(
+                            value.text.isEmpty
+                                ? 'לחצו על תמונות כדי להרכיב משפט'
+                                : value.text,
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: value.text.isEmpty
+                                  ? AppColors.textSoft
+                                  : AppColors.text,
+                            ),
+                          ),
+                        ),
+                ),
+                if (widget.addEachWord)
+                  IconButton(
+                    tooltip: 'סיימנו',
+                    icon: const Icon(Icons.check_circle_rounded,
+                        color: AppColors.primary, size: 30),
+                    onPressed: () => Navigator.of(context).pop(),
+                  )
+                else ...[
+                  IconButton(
+                    tooltip: 'מחיקת המילה האחרונה',
+                    icon: const Icon(Icons.backspace_outlined),
+                    onPressed: () {
+                      final parts = widget.controller.text.trim().split(' ');
+                      widget.controller.text = parts.length <= 1
+                          ? ''
+                          : parts.sublist(0, parts.length - 1).join(' ');
+                    },
                   ),
-                ),
-                IconButton(
-                  tooltip: 'מחיקת המילה האחרונה',
-                  icon: const Icon(Icons.backspace_outlined),
-                  onPressed: () {
-                    final parts = widget.controller.text.trim().split(' ');
-                    widget.controller.text = parts.length <= 1
-                        ? ''
-                        : parts.sublist(0, parts.length - 1).join(' ');
-                  },
-                ),
-                IconButton(
-                  tooltip: 'שליחה',
-                  icon:
-                      const Icon(Icons.send_rounded, color: AppColors.primary),
-                  onPressed: () {
-                    final text = widget.controller.text.trim();
-                    if (text.isEmpty) return;
-                    Navigator.of(context).pop();
-                    widget.onSubmit(text);
-                  },
-                ),
+                  IconButton(
+                    tooltip: 'שליחה',
+                    icon: const Icon(Icons.send_rounded,
+                        color: AppColors.primary),
+                    onPressed: () {
+                      final text = widget.controller.text.trim();
+                      if (text.isEmpty) return;
+                      Navigator.of(context).pop();
+                      widget.onSubmit(text);
+                    },
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 8),
