@@ -1,5 +1,7 @@
 # Deploys the Claude-proxy Cloud Functions to Firebase — from the browser,
-# no local tooling needed. Trigger it manually from the Actions tab.
+# no local tooling needed. Runs automatically when anything under
+# functions/ changes on main; can still be triggered manually from the
+# Actions tab.
 #
 # Required repo secrets (Settings → Secrets and variables → Actions):
 #   FIREBASE_PROJECT_ID      — the Firebase project id
@@ -13,9 +15,17 @@ name: Deploy functions
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["functions/**"]
 
 permissions:
   contents: read
+
+# A newer push supersedes an in-flight deploy of older code.
+concurrency:
+  group: deploy-functions
+  cancel-in-progress: true
 
 jobs:
   deploy:
