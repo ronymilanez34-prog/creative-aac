@@ -116,6 +116,10 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
 
   bool _imagining = false;
   Uint8List? _realImage;
+
+  /// Tap selects (highlight ring + visible action bar) — long-press proved
+  /// unintuitive and motorically inaccessible; actions must be seen.
+  _Placed? _selected;
   List<BoardWord> _boardWords = const [];
   final TextEditingController _compose = TextEditingController();
 
@@ -377,17 +381,31 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
                           left: p.dx * box.maxWidth - 28,
                           top: p.dy * box.maxHeight - 28,
                           child: GestureDetector(
-                            onTap: () => _speech.speak(p.label),
-                            onLongPress: () => _rename(p),
+                            onTap: () {
+                              _speech.speak(p.label);
+                              setState(
+                                  () => _selected = _selected == p ? null : p);
+                            },
                             onPanUpdate: (d) => setState(() {
                               p.dx = (p.dx + d.delta.dx / box.maxWidth)
                                   .clamp(0.05, 0.95);
                               p.dy = (p.dy + d.delta.dy / box.maxHeight)
                                   .clamp(0.05, 0.95);
                             }),
-                            child: Text(
-                              p.emoji,
-                              style: const TextStyle(fontSize: 56),
+                            child: Container(
+                              decoration: _selected == p
+                                  ? BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                          color: Colors.white, width: 3),
+                                      color: Colors.white24,
+                                    )
+                                  : null,
+                              padding: const EdgeInsets.all(2),
+                              child: Text(
+                                p.emoji,
+                                style: const TextStyle(fontSize: 56),
+                              ),
                             ),
                           ),
                         ),
@@ -437,13 +455,59 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
           ),
           ),
         ),
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 4),
-          child: Text(
-            'מה נוסיף לתמונה? (אפשר לגרור כל דבר למקום שלו)',
-            style: TextStyle(fontSize: 16, color: AppColors.textSoft),
+        // Visible actions for the selected element — no hidden gestures.
+        if (_selected != null)
+          Container(
+            margin: const EdgeInsets.fromLTRB(12, 2, 12, 2),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.primary, width: 2),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${_selected!.emoji} ${_selected!.label}',
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.w700),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'להשמיע',
+                  icon: const Icon(Icons.volume_up_rounded,
+                      color: AppColors.primary),
+                  onPressed: () => _speech.speak(_selected!.label),
+                ),
+                TextButton.icon(
+                  icon: const Icon(Icons.edit_rounded, size: 20),
+                  label: const Text('שם חדש', style: TextStyle(fontSize: 16)),
+                  onPressed: () => _rename(_selected!),
+                ),
+                IconButton(
+                  tooltip: 'להסיר מהתמונה',
+                  icon: const Icon(Icons.delete_outline_rounded),
+                  onPressed: () {
+                    _speech.speak('מחקנו את ${_selected!.label}');
+                    setState(() {
+                      _placed.remove(_selected);
+                      _selected = null;
+                    });
+                  },
+                ),
+              ],
+            ),
+          )
+        else
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 4),
+            child: Text(
+              'מה נוסיף לתמונה? לחיצה על דבר בתמונה — בוחרת אותו',
+              style: TextStyle(fontSize: 16, color: AppColors.textSoft),
+            ),
           ),
-        ),
         // Category tabs.
         SizedBox(
           height: 48,
