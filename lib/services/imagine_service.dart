@@ -33,6 +33,11 @@ class ImagineService {
         final body = jsonDecode(utf8.decode(res.bodyBytes));
         if (body is Map && body['error'] != null) {
           message = body['error'].toString();
+          // The server's technical detail is what lets us diagnose remotely.
+          final detail = body['detail']?.toString() ?? '';
+          if (detail.isNotEmpty) {
+            message = '$message\n${detail.substring(0, detail.length > 200 ? 200 : detail.length)}';
+          }
         }
       } catch (_) {}
       throw ImagineException(message);

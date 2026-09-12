@@ -158,11 +158,17 @@ exports.companionTurnHttp = onRequest(
  * service identity via the metadata server — no extra key to manage.
  * Guarded by the same APP_KEY header as the companion.
  */
-const IMAGEN_MODEL = "imagen-3.0-fast-generate-001";
-const IMAGEN_URL =
+// Newest first; older entries are fallbacks for projects where the newer
+// generation isn't yet available. A 404 means "this model doesn't exist for
+// this project" — try the next one.
+const IMAGEN_MODELS = [
+  "imagen-4.0-fast-generate-001",
+  "imagen-3.0-fast-generate-001",
+];
+const imagenUrl = (model) =>
   `https://us-central1-aiplatform.googleapis.com/v1/projects/` +
   `${process.env.GCLOUD_PROJECT}/locations/us-central1/publishers/google/` +
-  `models/${IMAGEN_MODEL}:predict`;
+  `models/${model}:predict`;
 
 async function serviceAccessToken() {
   const res = await fetch(
@@ -191,17 +197,22 @@ exports.imagineHttp = onRequest(
     }
     try {
       const token = await serviceAccessToken();
-      const r = await fetch(IMAGEN_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          instances: [{ prompt }],
-          parameters: { sampleCount: 1, aspectRatio: "4:3" },
-        }),
-      });
+      let r = null;
+      for (const model of IMAGEN_MODELS) {
+        r = await fetch(imagenUrl(model), {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            instances: [{ prompt }],
+            parameters: { sampleCount: 1, aspectRatio: "4:3" },
+          }),
+        });
+        // Anything but "model not found" is this model's real answer.
+        if (r.status !== 404) break;
+      }
       if (!r.ok) {
         const detail = await r.text().catch(() => "");
         res.status(500).json({
