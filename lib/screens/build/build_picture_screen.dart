@@ -154,6 +154,10 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
   List<BoardWord> _boardWords = const [];
   final TextEditingController _compose = TextEditingController();
 
+  /// The picture-chat input: once a real picture exists, you TALK to it —
+  /// chips, board words, or typed text — and each message edits the image.
+  final TextEditingController _editCtl = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -168,6 +172,7 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
   void dispose() {
     _speech.dispose();
     _compose.dispose();
+    _editCtl.dispose();
     super.dispose();
   }
 
@@ -298,6 +303,34 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
       setState(() => _imagining = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('לא הצלחנו לצייר הפעם: $e')),
+      );
+    }
+  }
+
+  /// One message in the picture-chat: an instruction in the user's words
+  /// edits the existing picture (the server keeps the rest as-is).
+  Future<void> _editWords(String text) async {
+    final t = text.trim();
+    if (t.isEmpty || _realImage == null || _imagining) return;
+    _editCtl.clear();
+    _speech.speak(t);
+    setState(() => _imagining = true);
+    try {
+      final bytes = await ImagineService().imagine(
+        '$t. שמור על שאר התמונה כפי שהיא. בלי טקסט בתמונה.',
+        baseImage: _realImage,
+      );
+      if (!mounted) return;
+      setState(() {
+        _imagining = false;
+        _realImage = bytes;
+      });
+      _speech.speak('הנה!');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _imagining = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('לא הצלחנו לשנות הפעם: $e')),
       );
     }
   }
@@ -615,14 +648,14 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
               ],
             ),
           )
+        else if (_realImage != null)
+          _pictureChat()
         else
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 4),
             child: Text(
-              _realImage != null && _addedSincePainted.isNotEmpty
-                  ? 'בציור הבא יתווספו: ${_addedSincePainted.map((p) => p.label).join(', ')} — לחצו 🎨'
-                  : 'מה נוסיף לתמונה? לחיצה על דבר בתמונה — בוחרת אותו',
-              style: const TextStyle(fontSize: 16, color: AppColors.textSoft),
+              'מה נוסיף לתמונה? לחיצה על דבר בתמונה — בוחרת אותו',
+              style: TextStyle(fontSize: 16, color: AppColors.textSoft),
             ),
           ),
         // Category tabs.
@@ -715,6 +748,104 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  /// Quick edit ideas — each tap talks to the picture right away.
+  static const _kEditChips = [
+    ('🌙', 'שיהיה לילה'),
+    ('☀️', 'שיהיה יום'),
+    ('❄️', 'שיהיה שלג'),
+    ('🌈', 'עוד צבעים'),
+    ('✨', 'עוד קסם'),
+  ];
+
+  /// The chat with the picture: quick chips, the board, or typed words —
+  /// every message changes the existing picture ("like talking to you").
+  Widget _pictureChat() {
+    final pending = _addedSincePainted;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 2),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (pending.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Text(
+                'בציור הבא יתווספו: ${pending.map((p) => p.label).join(', ')} — לחצו 🎨',
+                style:
+                    const TextStyle(fontSize: 14, color: AppColors.textSoft),
+              ),
+            ),
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                for (final (emoji, words) in _kEditChips)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 3),
+                    child: ActionChip(
+                      label: Text('$emoji $words',
+                          style: const TextStyle(fontSize: 15)),
+                      onPressed: () => _editWords(words),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              BoardComposerButton(
+                words: _boardWords,
+                controller: _editCtl,
+                onSubmit: _editWords,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _editCtl,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: _editWords,
+                  style: const TextStyle(fontSize: 16),
+                  decoration: InputDecoration(
+                    hintText: 'מה לשנות בתמונה?',
+                    isDense: true,
+                    filled: true,
+                    fillColor: AppColors.surface,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: AppColors.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: AppColors.border),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Material(
+                color: AppColors.primary,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: () => _editWords(_editCtl.text),
+                  child: const Padding(
+                    padding: EdgeInsets.all(10),
+                    child: Icon(Icons.send_rounded,
+                        color: Colors.white, size: 20),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
