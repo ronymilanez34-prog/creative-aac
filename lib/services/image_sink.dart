@@ -15,3 +15,22 @@ class NoopImageSink implements ImageSink {
   @override
   String? write(String name, Uint8List data) => null;
 }
+
+/// Keeps images in memory (name → bytes) up to a byte budget — the web
+/// board store persists them as data URIs in browser storage afterwards.
+/// Past the budget, words still import, just without their picture.
+class MemoryImageSink implements ImageSink {
+  MemoryImageSink({this.budgetBytes = 3 * 1000 * 1000});
+
+  final int budgetBytes;
+  final Map<String, Uint8List> images = {};
+  int _used = 0;
+
+  @override
+  String? write(String name, Uint8List data) {
+    if (_used + data.length > budgetBytes) return null;
+    _used += data.length;
+    images[name] = data;
+    return name;
+  }
+}
