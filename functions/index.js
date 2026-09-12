@@ -300,9 +300,26 @@ exports.imagineHttp = onRequest(
       }
       // Imagen is closed to this project (and can't edit) — go through the
       // Gemini image model. If the aspect-ratio config is what's rejected,
-      // retry bare.
-      let g = await geminiImage(token, prompt, true, baseImageB64);
-      if (g.status === 400) g = await geminiImage(token, prompt, false, baseImageB64);
+      // retry bare. The model occasionally answers with TEXT ONLY ("sure,
+      // here's a picture..." and no picture) — insist once more before
+      // giving up.
+      let g = null;
+      let payload = null;
+      let part = null;
+      let attemptPrompt = prompt;
+      for (let attempt = 0; attempt < 2 && !part; attempt++) {
+        g = await geminiImage(token, attemptPrompt, true, baseImageB64);
+        if (g.status === 400) {
+          g = await geminiImage(token, attemptPrompt, false, baseImageB64);
+        }
+        if (!g.ok) break;
+        payload = await g.json();
+        part = (payload?.candidates?.[0]?.content?.parts || []).find(
+          (p) => p.inlineData && p.inlineData.data
+        );
+        attemptPrompt =
+          `${prompt}\n\nחשוב: אל תענה בטקסט. צור והחזר את התמונה עצמה עכשיו.`;
+      }
       if (!g.ok) {
         const detail = await g.text().catch(() => "");
         res.status(500).json({
@@ -311,10 +328,6 @@ exports.imagineHttp = onRequest(
         });
         return;
       }
-      const payload = await g.json();
-      const part = (payload?.candidates?.[0]?.content?.parts || []).find(
-        (p) => p.inlineData && p.inlineData.data
-      );
       if (!part) {
         res.status(500).json({
           error: "לא התקבלה תמונה מהמחולל.",
