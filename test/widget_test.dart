@@ -68,6 +68,79 @@ void main() {
     expect(UserProfile.decode('not json').isEmpty, isTrue);
   });
 
+  test('companion turn survives partial and malformed JSON', () {
+    // The full happy shape — mirrors the server's TURN_SCHEMA.
+    final full = CompanionTurn.fromJson({
+      'say': 'איזה יופי',
+      'say_symbols': [
+        {'emoji': '🌊', 'word': 'ים'},
+        {'emoji': '❓', 'word': ''}, // empty word — filtered out
+      ],
+      'creation_update': 'הים היה שקט.',
+      'needs_confirmation': true,
+      'confirm': {
+        'question': 'התכוונת לים?',
+        'options': ['כן', 'לא'],
+      },
+      'options': [
+        {'emoji': '🐟', 'label': 'דג'},
+      ],
+      'partner_tip': 'חכו בסבלנות',
+      'questions': ['מה קרה בים?'],
+      'safeguard': false,
+    });
+    expect(full.say, 'איזה יופי');
+    expect(full.saySymbols.single.word, 'ים');
+    expect(full.creationUpdate, 'הים היה שקט.');
+    expect(full.needsConfirmation, isTrue);
+    expect(full.confirm!.options, ['כן', 'לא']);
+    expect(full.options.single.label, 'דג');
+    expect(full.questions, ['מה קרה בים?']);
+
+    // Every field missing — defaults, no crash mid-session.
+    final empty = CompanionTurn.fromJson(const {});
+    expect(empty.say, '');
+    expect(empty.saySymbols, isEmpty);
+    expect(empty.creationUpdate, isNull);
+    expect(empty.needsConfirmation, isFalse);
+    expect(empty.confirm, isNull);
+    expect(empty.options, isEmpty);
+    expect(empty.safeguard, isFalse);
+
+    // Wrong-typed junk in list/object fields is dropped, not fatal.
+    final junk = CompanionTurn.fromJson(const {
+      'say': 'שלום',
+      'say_symbols': ['לא אובייקט'],
+      'confirm': 'לא אובייקט',
+      'options': [42, null],
+      'questions': ['', '  ', 'שאלה'],
+    });
+    expect(junk.saySymbols, isEmpty);
+    expect(junk.confirm, isNull);
+    expect(junk.options, isEmpty);
+    expect(junk.questions, ['שאלה']);
+  });
+
+  test('story pages round-trip the real picture and can drop it', () {
+    final b64 = base64Encode(Uint8List.fromList([1, 2, 3, 4]));
+    final story = Story(
+      id: '1',
+      title: 'תמונה בים',
+      createdAtMs: 0,
+      pages: [StoryPage(text: 'תמונה בים.', emoji: '🖼️', imageB64: b64)],
+    );
+
+    final restored = Story.fromJson(
+        jsonDecode(jsonEncode(story.toJson())) as Map<String, dynamic>);
+    expect(restored.pages.single.imageB64, b64);
+
+    // The storage-full fallback keeps the words, drops only the picture.
+    final stripped = restored.withoutImages();
+    expect(stripped.pages.single.imageB64, isNull);
+    expect(stripped.pages.single.text, 'תמונה בים.');
+    expect(stripped.title, 'תמונה בים');
+  });
+
   test('story pages round-trip re-reading questions', () {
     const page = StoryPage(
       text: 'היה היה דרקון.',

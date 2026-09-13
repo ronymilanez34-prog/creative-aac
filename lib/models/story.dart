@@ -31,6 +31,7 @@ class StoryPage {
     required this.text,
     required this.emoji,
     this.questions = const [],
+    this.imageB64,
   });
 
   final String text;
@@ -41,10 +42,16 @@ class StoryPage {
   /// waits, and every answer is a good answer).
   final List<String> questions;
 
+  /// The REAL picture the user made (base64, already shrunk for storage).
+  /// A creation must never vanish — the painted lion of today is the thing
+  /// they open tomorrow and show. Null for text-only pages.
+  final String? imageB64;
+
   Map<String, dynamic> toJson() => {
         'text': text,
         'emoji': emoji,
         if (questions.isNotEmpty) 'questions': questions,
+        if (imageB64 != null) 'imageB64': imageB64,
       };
 
   factory StoryPage.fromJson(Map<String, dynamic> j) => StoryPage(
@@ -54,7 +61,11 @@ class StoryPage {
             .map((e) => e.toString())
             .where((s) => s.trim().isNotEmpty)
             .toList(),
+        imageB64: j['imageB64'] as String?,
       );
+
+  StoryPage withoutImage() =>
+      StoryPage(text: text, emoji: emoji, questions: questions);
 }
 
 class Story {
@@ -84,5 +95,14 @@ class Story {
         pages: (j['pages'] as List)
             .map((e) => StoryPage.fromJson(e as Map<String, dynamic>))
             .toList(),
+      );
+
+  /// The same story with pictures stripped — the storage-full fallback:
+  /// losing a picture is bad, losing the whole creation is worse.
+  Story withoutImages() => Story(
+        id: id,
+        title: title,
+        createdAtMs: createdAtMs,
+        pages: pages.map((p) => p.withoutImage()).toList(),
       );
 }

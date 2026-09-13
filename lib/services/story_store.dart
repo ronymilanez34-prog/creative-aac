@@ -28,7 +28,16 @@ class StoryStore {
     final all = await loadAll();
     all.removeWhere((s) => s.id == story.id);
     all.add(story);
-    await _write(all);
+    try {
+      await _write(all);
+    } catch (_) {
+      // Browser storage full (pictures are the heavy part) — keep the words,
+      // drop this story's pictures. Losing a picture is bad; losing the
+      // whole creation is worse.
+      all.removeLast();
+      all.add(story.withoutImages());
+      await _write(all);
+    }
   }
 
   Future<void> delete(String id) async {

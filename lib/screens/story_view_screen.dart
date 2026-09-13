@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../models/story.dart';
@@ -31,6 +34,23 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
 
   bool get _hasQuestions =>
       widget.story.pages.any((p) => p.questions.isNotEmpty);
+
+  /// Decoded page pictures, cached so paging back and forth doesn't
+  /// re-decode base64 on every rebuild.
+  final Map<int, Uint8List> _imageCache = {};
+
+  Uint8List? _pageImage(int i) {
+    final b64 = widget.story.pages[i].imageB64;
+    if (b64 == null || b64.isEmpty) return null;
+    final bytes = _imageCache.putIfAbsent(i, () {
+      try {
+        return base64Decode(b64);
+      } catch (_) {
+        return Uint8List(0);
+      }
+    });
+    return bytes.isEmpty ? null : bytes;
+  }
 
   @override
   void dispose() {
@@ -101,8 +121,22 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                      Text(p.emoji,
-                          style: TextStyle(fontSize: showQuestions ? 72 : 120)),
+                      // The page's REAL picture when it has one — the
+                      // creation itself, not a stand-in; emoji otherwise.
+                      if (_pageImage(i) != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(18),
+                          child: Image.memory(
+                            _pageImage(i)!,
+                            height: showQuestions ? 160.0 : 260.0,
+                            fit: BoxFit.contain,
+                            gaplessPlayback: true,
+                          ),
+                        )
+                      else
+                        Text(p.emoji,
+                            style:
+                                TextStyle(fontSize: showQuestions ? 72 : 120)),
                       const SizedBox(height: 24),
                       Text(
                         p.text,

@@ -44,6 +44,19 @@ class _CompanionScreenState extends State<CompanionScreen> {
   final List<CreationPiece> _creation = [];
   late CompanionTurn _turn;
 
+  /// One story id per session, so pressing save again UPDATES the same
+  /// saved creation instead of piling up near-duplicates.
+  final String _sessionStoryId =
+      DateTime.now().microsecondsSinceEpoch.toString();
+
+  /// How many creation pieces were already saved — leaving with more than
+  /// this on screen asks first (see [_confirmExit]); nothing vanishes
+  /// silently.
+  int _savedPieces = 0;
+
+  bool get _hasUnsaved =>
+      _creation.isNotEmpty && _savedPieces != _creation.length;
+
   /// The visible conversation — the user's choices, the companion's
   /// replies, and each piece added to the creation. A choice that vanishes
   /// on tap leaves no sense of dialogue or authorship; the thread is where
@@ -272,7 +285,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
     final firstWords =
         _creation.first.text.split(RegExp(r'\s+')).take(4).join(' ');
     final story = Story(
-      id: now.microsecondsSinceEpoch.toString(),
+      id: _sessionStoryId,
       title: firstWords.isEmpty ? 'יצירה' : firstWords,
       pages: [
         for (final p in _creation)
@@ -282,9 +295,66 @@ class _CompanionScreenState extends State<CompanionScreen> {
     );
     await StoryStore().save(story);
     if (!mounted) return;
+    setState(() => _savedPieces = _creation.length);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('נשמר ב"הסיפורים שלי" 📚')),
     );
+  }
+
+  /// Leaving with unsaved creation pieces asks first — spoken aloud, big
+  /// buttons, saving as the easy default. A creation that vanishes on exit
+  /// breaks "I made something — it is mine".
+  Future<void> _confirmExit() async {
+    if (!_hasUnsaved) {
+      Navigator.of(context).pop();
+      return;
+    }
+    _speech.speak('לשמור את היצירה לפני שיוצאים?');
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text(
+            'לשמור את היצירה?',
+            textAlign: TextAlign.center,
+          ),
+          content: SizedBox(
+            width: 320,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                BigButton(
+                  label: 'לשמור ולצאת',
+                  emoji: '💾',
+                  onTap: () => Navigator.of(ctx).pop('save'),
+                ),
+                const SizedBox(height: 10),
+                BigButton(
+                  label: 'להמשיך ליצור',
+                  emoji: '🎨',
+                  color: AppColors.accent,
+                  onTap: () => Navigator.of(ctx).pop('stay'),
+                ),
+                const SizedBox(height: 6),
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop('discard'),
+                  child: const Text('לצאת בלי לשמור'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'save') {
+      await _saveCreation();
+      if (mounted) Navigator.of(context).pop();
+    } else if (choice == 'discard') {
+      Navigator.of(context).pop();
+    }
   }
 
   void _onQuickFire(QuickFire q) {
@@ -335,12 +405,19 @@ class _CompanionScreenState extends State<CompanionScreen> {
   Widget build(BuildContext context) {
     final options = _visibleOptions;
 
-    return Scaffold(
+    return PopScope(
+      // System back with unsaved pieces goes through the same "save first?"
+      // question as the arrow button — no silent loss from any exit.
+      canPop: !_hasUnsaved,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _confirmExit();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('בואו ניצור ביחד'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_forward),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _confirmExit,
         ),
         actions: [
           IconButton(
@@ -438,6 +515,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
               ),
           ],
         ),
+      ),
       ),
     );
   }
