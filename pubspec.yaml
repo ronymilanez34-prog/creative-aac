@@ -26,7 +26,6 @@ dependencies:
   # 12.x on purpose: 13.x wants win32 ^6 while file_picker 10.x pins ^5 —
   # same SharePlus.instance/ShareParams API either way.
   share_plus: ^12.0.2
-  cross_file: ^0.3.4
 
 dev_dependencies:
   flutter_test:

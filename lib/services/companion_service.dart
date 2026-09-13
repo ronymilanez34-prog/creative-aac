@@ -137,9 +137,9 @@ class MockCompanionService implements CompanionService {
           );
         }
         if (_ended) {
-          return CompanionTurn(
+          return const CompanionTurn(
             say: 'הסיפור שלך מוכן 🌟 אפשר לשמוע שוב, או לצאת ולשמור אותו.',
-            options: const [ChipOption(emoji: '🔊', label: 'קרא הכל')],
+            options: [ChipOption(emoji: '🔊', label: 'קרא הכל')],
           );
         }
         _ended = true;
