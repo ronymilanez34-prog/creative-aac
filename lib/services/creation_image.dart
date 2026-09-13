@@ -13,13 +13,13 @@ Future<Uint8List> shrinkForStorage(Uint8List bytes,
   try {
     // First decode reads the true size; only downscale, never upscale.
     final probe = await ui.instantiateImageCodec(bytes);
-    final frame = await probe.getFrame();
+    final frame = await probe.getNextFrame();
     final width = frame.image.width;
     frame.image.dispose();
     if (width <= maxWidth) return bytes;
 
     final codec = await ui.instantiateImageCodec(bytes, targetWidth: maxWidth);
-    final scaled = await codec.getFrame();
+    final scaled = await codec.getNextFrame();
     final data =
         await scaled.image.toByteData(format: ui.ImageByteFormat.png);
     scaled.image.dispose();
