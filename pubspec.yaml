@@ -21,6 +21,10 @@ dependencies:
   archive: ^3.6.1
   path_provider: ^2.1.4
   flutter_svg: ^2.0.10
+  # The bridge out: sharing a finished creation (text + its real picture)
+  # through the platform share sheet — the pride loop must leave the device.
+  share_plus: ^13.3.0
+  cross_file: ^0.3.4
 
 dev_dependencies:
   flutter_test:

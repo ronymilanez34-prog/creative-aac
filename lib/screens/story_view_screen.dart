@@ -1,9 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/story.dart';
+import '../services/interaction_log.dart';
 import '../services/speech.dart';
 import '../services/story_store.dart';
 import '../theme.dart';
@@ -73,6 +78,42 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('הסיפור נשמר 📚')),
     );
+  }
+
+  /// The bridge out: the creation (words + its real pictures) through the
+  /// platform share sheet — "look what I made" must be able to reach
+  /// grandma. Where no share sheet exists (some desktop browsers), the
+  /// text is copied instead so the button never dead-ends.
+  Future<void> _share() async {
+    final story = widget.story;
+    final text =
+        '${story.title}\n\n${story.pages.map((p) => p.text).join('\n')}';
+    try {
+      final images = <XFile>[];
+      for (var i = 0; i < story.pages.length; i++) {
+        final bytes = _pageImage(i);
+        if (bytes != null) {
+          images.add(XFile.fromData(
+            bytes,
+            mimeType: 'image/png',
+            name: 'creation_$i.png',
+          ));
+        }
+      }
+      await SharePlus.instance.share(
+        images.isEmpty
+            ? ShareParams(title: story.title, text: text)
+            : ShareParams(title: story.title, text: text, files: images),
+      );
+      unawaited(InteractionLog().logShare());
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: text));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('הסיפור הועתק — אפשר להדביק בכל מקום 📋')),
+      );
+    }
   }
 
   @override
@@ -214,25 +255,38 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
             top: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-              child: Row(
+              child: Column(
                 children: [
-                  Expanded(
-                    child: BigButton(
-                      label: _saved ? 'נשמר ✓' : 'שמור סיפור',
-                      emoji: _saved ? null : '💾',
-                      color: _saved ? AppColors.textSoft : AppColors.accent,
-                      enabled: !_saved,
-                      onTap: _save,
-                    ),
+                  // The pride loop leaves the device from here: one big
+                  // obvious door out for the finished creation.
+                  BigButton(
+                    label: 'לשלוח למישהו',
+                    emoji: '🎁',
+                    onTap: _share,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: BigButton(
-                      label: 'סיפור חדש',
-                      emoji: '🪄',
-                      color: AppColors.primaryDark,
-                      onTap: () => Navigator.of(context).pop(),
-                    ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: BigButton(
+                          label: _saved ? 'נשמר ✓' : 'שמור סיפור',
+                          emoji: _saved ? null : '💾',
+                          color:
+                              _saved ? AppColors.textSoft : AppColors.accent,
+                          enabled: !_saved,
+                          onTap: _save,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: BigButton(
+                          label: 'סיפור חדש',
+                          emoji: '🪄',
+                          color: AppColors.primaryDark,
+                          onTap: () => Navigator.of(context).pop(),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

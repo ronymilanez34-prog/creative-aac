@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -8,6 +10,8 @@ import '../models/story.dart';
 import '../services/board_store.dart';
 import '../services/chip_layout.dart';
 import '../services/companion_service.dart';
+import '../services/creation_image.dart';
+import '../services/imagine_service.dart';
 import '../services/interaction_log.dart';
 import '../services/speech.dart';
 import '../services/story_store.dart';
@@ -56,6 +60,11 @@ class _CompanionScreenState extends State<CompanionScreen> {
 
   bool get _hasUnsaved =>
       _creation.isNotEmpty && _savedPieces != _creation.length;
+
+  /// The scene as painted so far, when the creation is visual
+  /// (scene_update in the turn contract) — the creation SEEN growing.
+  Uint8List? _sceneImage;
+  bool _painting = false;
 
   /// The visible conversation — the user's choices, the companion's
   /// replies, and each piece added to the creation. A choice that vanishes
@@ -145,6 +154,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
   }
 
   void _applyTurn(CompanionTurn turn, {bool speak = true}) {
+    // A safeguard flag must reach a human, not only a banner: it is logged
+    // and surfaces on the partner's next visit ("since your last review").
+    if (turn.safeguard) unawaited(_log.logSafeguard());
     setState(() {
       _turn = turn;
       _thread.add(_ThreadItem.companion(turn.say, turn.saySymbols));
@@ -267,6 +279,12 @@ class _CompanionScreenState extends State<CompanionScreen> {
       }
       _applyTurn(next);
       _scrollCreationToEnd();
+      // A visual creation paints itself as it grows — quietly, in the
+      // background; the words never wait for the painter.
+      final scene = next.sceneUpdate?.trim() ?? '';
+      if (scene.isNotEmpty && ImagineService.available) {
+        unawaited(_paintScene(scene));
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -277,6 +295,29 @@ class _CompanionScreenState extends State<CompanionScreen> {
     }
   }
 
+  /// Paints (or repaints) the scene from the companion's full description.
+  /// The existing picture rides along as the edit base so the scene keeps
+  /// its look between turns. Failure is quiet: the words are still there,
+  /// and the next scene_update tries again.
+  Future<void> _paintScene(String scene) async {
+    if (_painting) return;
+    setState(() => _painting = true);
+    try {
+      final bytes = await ImagineService().imagine(
+        '$scene. בלי טקסט בתמונה.',
+        baseImage: _sceneImage,
+      );
+      if (!mounted) return;
+      setState(() {
+        _painting = false;
+        _sceneImage = bytes;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _painting = false);
+    }
+  }
+
   /// Saves the creation so far into "my stories" — creations must never
   /// simply vanish; a finished piece is something to revisit and show.
   Future<void> _saveCreation() async {
@@ -284,12 +325,23 @@ class _CompanionScreenState extends State<CompanionScreen> {
     final now = DateTime.now();
     final firstWords =
         _creation.first.text.split(RegExp(r'\s+')).take(4).join(' ');
+    // The painted scene is part of the creation — it rides on the first
+    // page (shrunk), so it opens tomorrow and shows as the thumbnail.
+    String? imageB64;
+    if (_sceneImage != null) {
+      imageB64 = base64Encode(await shrinkForStorage(_sceneImage!));
+    }
     final story = Story(
       id: _sessionStoryId,
       title: firstWords.isEmpty ? 'יצירה' : firstWords,
       pages: [
-        for (final p in _creation)
-          StoryPage(text: p.text, emoji: '✨', questions: p.questions),
+        for (var i = 0; i < _creation.length; i++)
+          StoryPage(
+            text: _creation[i].text,
+            emoji: '✨',
+            questions: _creation[i].questions,
+            imageB64: i == 0 ? imageB64 : null,
+          ),
       ],
       createdAtMs: now.millisecondsSinceEpoch,
     );
@@ -450,7 +502,12 @@ class _CompanionScreenState extends State<CompanionScreen> {
             Column(
           children: [
             if (_turn.safeguard) const _SafeguardBanner(),
-            _CreationCard(text: _creationText, scroll: _creationScroll),
+            _CreationCard(
+              text: _creationText,
+              scroll: _creationScroll,
+              image: _sceneImage,
+              painting: _painting,
+            ),
             Expanded(
               child: ListView.separated(
                 controller: _threadScroll,
@@ -466,12 +523,25 @@ class _CompanionScreenState extends State<CompanionScreen> {
             if (_partnerMode && (_turn.partnerTip?.trim().isNotEmpty ?? false))
               _PartnerTip(text: _turn.partnerTip!.trim()),
             if (_busy)
+              // Waiting is part of the experience: a calm sentence, not a
+              // bare spinner — predictability is the user's regulation.
               const Padding(
                 padding: EdgeInsets.all(12),
-                child: SizedBox(
-                  height: 22,
-                  width: 22,
-                  child: CircularProgressIndicator(strokeWidth: 3),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 3),
+                    ),
+                    SizedBox(width: 10),
+                    Text(
+                      'רגע, חושבים יחד… ✨',
+                      style:
+                          TextStyle(fontSize: 16, color: AppColors.textSoft),
+                    ),
+                  ],
                 ),
               ),
             if (_failed)
@@ -522,42 +592,98 @@ class _CompanionScreenState extends State<CompanionScreen> {
 }
 
 class _CreationCard extends StatelessWidget {
-  const _CreationCard({required this.text, required this.scroll});
+  const _CreationCard({
+    required this.text,
+    required this.scroll,
+    this.image,
+    this.painting = false,
+  });
 
   final String text;
   final ScrollController scroll;
 
+  /// The painted scene of a visual creation — shown above the words.
+  final Uint8List? image;
+
+  /// A repaint is in flight (small quiet indicator on the picture).
+  final bool painting;
+
   @override
   Widget build(BuildContext context) {
+    final hasImage = image != null;
     return Container(
       margin: const EdgeInsets.all(12),
       padding: const EdgeInsets.all(16),
-      constraints: const BoxConstraints(minHeight: 72, maxHeight: 150),
+      constraints:
+          BoxConstraints(minHeight: 72, maxHeight: hasImage ? 290 : 150),
       width: double.infinity,
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.border, width: 2),
       ),
-      child: text.isEmpty
-          ? const Center(
-              child: Text(
-                'כאן תיבנה היצירה שלך ✨',
-                style: TextStyle(fontSize: 18, color: AppColors.textSoft),
-              ),
-            )
-          : SingleChildScrollView(
-              controller: scroll,
-              child: Text(
-                text,
-                style: const TextStyle(
-                  fontSize: 22,
-                  height: 1.5,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.text,
+      child: Column(
+        children: [
+          if (hasImage) ...[
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.memory(
+                    image!,
+                    height: 128,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                  ),
                 ),
+                if (painting)
+                  const Positioned(
+                    top: 6,
+                    left: 6,
+                    child: SizedBox(
+                      height: 18,
+                      width: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2.5, color: Colors.white),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+          ] else if (painting) ...[
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text(
+                'מציירים את הסצנה שלך… 🎨',
+                style: TextStyle(fontSize: 15, color: AppColors.textSoft),
               ),
             ),
+          ],
+          Expanded(
+            child: text.isEmpty
+                ? const Center(
+                    child: Text(
+                      'כאן תיבנה היצירה שלך ✨',
+                      style:
+                          TextStyle(fontSize: 18, color: AppColors.textSoft),
+                    ),
+                  )
+                : SingleChildScrollView(
+                    controller: scroll,
+                    child: Text(
+                      text,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        height: 1.5,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.text,
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -65,6 +65,7 @@ const TURN_SCHEMA = {
     "say",
     "say_symbols",
     "creation_update",
+    "scene_update",
     "needs_confirmation",
     "confirm",
     "options",
@@ -87,6 +88,7 @@ const TURN_SCHEMA = {
       },
     },
     creation_update: { type: ["string", "null"] },
+    scene_update: { type: ["string", "null"] },
     needs_confirmation: { type: "boolean" },
     confirm: {
       anyOf: [

@@ -140,9 +140,18 @@ class HomeScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
                   // Deliberately low-key: the supporter surface, not part of
-                  // the user's calm creation flow.
+                  // the user's calm creation flow. Long-press to enter — a
+                  // soft gate so a user wandering the home screen doesn't
+                  // land in a text-heavy screen that lists their triggers.
                   TextButton.icon(
-                    onPressed: () => Navigator.of(context).push(
+                    onPressed: () =>
+                        ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content:
+                            Text('לחיצה ארוכה פותחת את מצב המלווה 🔒'),
+                      ),
+                    ),
+                    onLongPress: () => Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => const PartnerScreen(),
                       ),

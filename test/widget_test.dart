@@ -11,6 +11,7 @@ import 'package:creative_aac/models/profile.dart';
 import 'package:creative_aac/models/story.dart';
 import 'package:creative_aac/screens/partner_screen.dart';
 import 'package:creative_aac/services/chip_layout.dart';
+import 'package:creative_aac/services/companion_service.dart';
 import 'package:creative_aac/services/image_sink.dart';
 import 'package:creative_aac/services/interaction_log.dart';
 import 'package:creative_aac/services/obz_importer.dart';
@@ -77,6 +78,7 @@ void main() {
         {'emoji': '❓', 'word': ''}, // empty word — filtered out
       ],
       'creation_update': 'הים היה שקט.',
+      'scene_update': 'חוף ים בשקיעה, אריק האריה עומד במרכז',
       'needs_confirmation': true,
       'confirm': {
         'question': 'התכוונת לים?',
@@ -92,6 +94,7 @@ void main() {
     expect(full.say, 'איזה יופי');
     expect(full.saySymbols.single.word, 'ים');
     expect(full.creationUpdate, 'הים היה שקט.');
+    expect(full.sceneUpdate, 'חוף ים בשקיעה, אריק האריה עומד במרכז');
     expect(full.needsConfirmation, isTrue);
     expect(full.confirm!.options, ['כן', 'לא']);
     expect(full.options.single.label, 'דג');
@@ -102,6 +105,7 @@ void main() {
     expect(empty.say, '');
     expect(empty.saySymbols, isEmpty);
     expect(empty.creationUpdate, isNull);
+    expect(empty.sceneUpdate, isNull);
     expect(empty.needsConfirmation, isFalse);
     expect(empty.confirm, isNull);
     expect(empty.options, isEmpty);
@@ -207,6 +211,71 @@ void main() {
     final counts = await log.freeTextCounts();
     expect(counts['אוטובוס'], 3);
     expect(counts.containsKey('כלב'), isFalse);
+  });
+
+  test('chip choices count only the user\'s own taps', () async {
+    SharedPreferences.setMockInitialValues({});
+    final log = InteractionLog();
+    Future<void> tap(String kind, String source) => log.logSelection(
+          shownOptions: const ['ים'],
+          chosen: 'ים',
+          chosenIndex: 0,
+          kind: kind,
+          source: source,
+          lowEnergy: false,
+          latencyMs: 100,
+        );
+    await tap('chip', 'user');
+    await tap('chip', 'user');
+    await tap('chip', 'user');
+    await tap('chip', 'partner'); // modelling — never evidence about the user
+    await tap('text', 'user'); // typed, counted by desire paths instead
+    final counts = await log.chipChoiceCounts();
+    expect(counts['ים'], 3);
+  });
+
+  test('quick-fires and safeguards surface since the last partner review',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final log = InteractionLog();
+    await log.logQuickFire('עזרה');
+    await log.logSafeguard();
+
+    var since = await log.sinceLastReview();
+    expect(since.quickFires, ['עזרה']);
+    expect(since.safeguards, 1);
+
+    await log.markReviewed();
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+    since = await log.sinceLastReview();
+    expect(since.isEmpty, isTrue);
+
+    await log.logQuickFire('עצור');
+    since = await log.sinceLastReview();
+    expect(since.quickFires, ['עצור']);
+    expect(since.safeguards, 0);
+  });
+
+  test('offline demo ends once and re-reads instead of looping', () async {
+    final mock = MockCompanionService();
+    mock.opening();
+    await mock.turn('כלב');
+    await mock.turn('ביער');
+    await mock.turn('מקום שמח 😊');
+    await mock.turn('חברה');
+
+    final end = await mock.turn('טסו באוויר', creationSoFar: 'היה היה כלב.');
+    expect(end.creationUpdate, isNotNull);
+
+    // Tapping "read it all" re-reads — it never appends to the story.
+    final read =
+        await mock.turn('קרא הכל', creationSoFar: 'היה היה כלב. הסוף.');
+    expect(read.creationUpdate, isNull);
+    expect(read.say, 'היה היה כלב. הסוף.');
+
+    // And any further input after the ending never re-appends the closing.
+    final after = await mock.turn('עוד', creationSoFar: 'היה היה כלב. הסוף.');
+    expect(after.creationUpdate, isNull);
   });
 
   test('obz importer parses a bare .obf board with Hebrew labels', () async {
