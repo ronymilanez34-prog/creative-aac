@@ -61,6 +61,21 @@ class InteractionLog {
         'label': label,
       });
 
+  /// The companion raised its safeguard flag (distress detected in the
+  /// conversation). Logged so a human actually sees it on the next partner
+  /// visit — a banner the user alone saw is not an escalation path.
+  Future<void> logSafeguard() => _append({
+        'type': 'safeguard',
+        'ts': DateTime.now().toIso8601String(),
+      });
+
+  /// A creation left the device (share sheet opened) — the pride-and-
+  /// ownership measure the vision cares about most.
+  Future<void> logShare() => _append({
+        'type': 'share',
+        'ts': DateTime.now().toIso8601String(),
+      });
+
   Future<void> _append(Map<String, Object?> entry) async {
     final list = await _load();
     list.add(jsonEncode(entry));
@@ -132,6 +147,52 @@ class InteractionLog {
     return counts;
   }
 
+  /// Chip labels the user chose, counted — raw evidence for the
+  /// "maybe an interest?" hypothesis. User taps only: a partner's
+  /// modelling tap is never evidence about the user (authorship rule),
+  /// and a confirm tap answers the AI's question rather than choosing
+  /// content.
+  Future<Map<String, int>> chipChoiceCounts() async {
+    final counts = <String, int>{};
+    for (final e in await entries()) {
+      if (e['type'] == 'selection' &&
+          e['kind'] == 'chip' &&
+          e['source'] == 'user') {
+        final t = (e['chosen'] ?? '').toString().trim();
+        if (t.isNotEmpty) counts[t] = (counts[t] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
+  static const _reviewKey = 'interaction_log_review_ts_v1';
+
+  /// What a partner must see first: quick-fire presses and safeguard events
+  /// since their last visit. Raw evidence, no interpretation.
+  Future<SinceReview> sinceLastReview() async {
+    final prefs = await SharedPreferences.getInstance();
+    final since = DateTime.tryParse(prefs.getString(_reviewKey) ?? '');
+    final quickFires = <String>[];
+    var safeguards = 0;
+    for (final e in await entries()) {
+      final ts = DateTime.tryParse((e['ts'] ?? '').toString());
+      if (since != null && (ts == null || !ts.isAfter(since))) continue;
+      if (e['type'] == 'quickfire') {
+        quickFires.add((e['label'] ?? '').toString());
+      } else if (e['type'] == 'safeguard') {
+        safeguards++;
+      }
+    }
+    return SinceReview(quickFires: quickFires, safeguards: safeguards);
+  }
+
+  /// Marks now as the last partner review — call AFTER the summary was
+  /// actually shown.
+  Future<void> markReviewed() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_reviewKey, DateTime.now().toIso8601String());
+  }
+
   /// Full log as JSON — for the clinician export.
   Future<String> export() async =>
       const JsonEncoder.withIndent('  ').convert(await entries());
@@ -141,6 +202,20 @@ class InteractionLog {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key);
   }
+}
+
+/// What happened since the partner's last visit — the minimal escalation
+/// path: distress signals reach a human, not only a banner.
+class SinceReview {
+  const SinceReview({required this.quickFires, required this.safeguards});
+
+  /// Labels of quick-fire presses since the last review, in order.
+  final List<String> quickFires;
+
+  /// Number of safeguard flags the companion raised since the last review.
+  final int safeguards;
+
+  bool get isEmpty => quickFires.isEmpty && safeguards == 0;
 }
 
 /// Aggregated usage numbers for the clinician summary.

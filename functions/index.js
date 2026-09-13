@@ -48,6 +48,81 @@ const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const REGION = "europe-west1"; // keep data in-region; adjust as needed
 
 /**
+ * The turn contract, enforced by the API (structured outputs). With this
+ * schema attached, the model can only answer in the exact shape the app
+ * parses — a malformed turn can no longer reach a user mid-session.
+ * parseTurn() stays as a second net (and as the path when the schema is
+ * ever rejected — see the 400 fallback in runCompanionTurn).
+ *
+ * Structured-outputs rules: every object carries additionalProperties:false
+ * and lists all properties as required; optional fields are nullable
+ * instead of absent. Mirrors CompanionTurn.fromJson (lib/models/companion.dart).
+ */
+const TURN_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "say",
+    "say_symbols",
+    "creation_update",
+    "scene_update",
+    "needs_confirmation",
+    "confirm",
+    "options",
+    "partner_tip",
+    "questions",
+    "safeguard",
+  ],
+  properties: {
+    say: { type: "string" },
+    say_symbols: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["emoji", "word"],
+        properties: {
+          emoji: { type: "string" },
+          word: { type: "string" },
+        },
+      },
+    },
+    creation_update: { type: ["string", "null"] },
+    scene_update: { type: ["string", "null"] },
+    needs_confirmation: { type: "boolean" },
+    confirm: {
+      anyOf: [
+        { type: "null" },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["question", "options"],
+          properties: {
+            question: { type: "string" },
+            options: { type: "array", items: { type: "string" } },
+          },
+        },
+      ],
+    },
+    options: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["emoji", "label"],
+        properties: {
+          emoji: { type: "string" },
+          label: { type: "string" },
+        },
+      },
+    },
+    partner_tip: { type: ["string", "null"] },
+    questions: { type: "array", items: { type: "string" } },
+    safeguard: { type: "boolean" },
+  },
+};
+
+/**
  * Untrusted client history → a valid Messages array. Caps size, coerces
  * strings, forces roles to user/assistant, and merges consecutive same-role
  * entries (the API requires alternation and a user-role opener).
@@ -104,9 +179,8 @@ async function runCompanionTurn(data) {
     messages.push({ role: "user", content: message });
   }
 
-  let res;
-  try {
-    res = await fetch(ANTHROPIC_URL, {
+  const callClaude = (withSchema) =>
+    fetch(ANTHROPIC_URL, {
       method: "POST",
       headers: {
         "x-api-key": ANTHROPIC_API_KEY.value(),
@@ -119,10 +193,33 @@ async function runCompanionTurn(data) {
         temperature: 0.7,
         system,
         messages,
+        ...(withSchema
+          ? { output_config: { format: { type: "json_schema", schema: TURN_SCHEMA } } }
+          : {}),
       }),
     });
+
+  let res;
+  try {
+    res = await callClaude(true);
   } catch (err) {
     throw new HttpsError("unavailable", "שגיאת רשת בפנייה ל-Claude.", String(err));
+  }
+
+  // A 400 that names output_config means the platform rejected the schema
+  // itself (not our request content) — fall back to the un-constrained call
+  // so a pilot session never dies on a contract upgrade. parseTurn still
+  // guards the shape on that path.
+  if (res.status === 400) {
+    const detail = await res.text().catch(() => "");
+    if (!/output_config/i.test(detail)) {
+      throw new HttpsError("internal", "Claude החזיר שגיאה (400).", detail);
+    }
+    try {
+      res = await callClaude(false);
+    } catch (err) {
+      throw new HttpsError("unavailable", "שגיאת רשת בפנייה ל-Claude.", String(err));
+    }
   }
 
   if (!res.ok) {

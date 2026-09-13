@@ -52,6 +52,7 @@ class CompanionTurn {
     required this.say,
     this.saySymbols = const [],
     this.creationUpdate,
+    this.sceneUpdate,
     this.needsConfirmation = false,
     this.confirm,
     this.options = const [],
@@ -68,6 +69,12 @@ class CompanionTurn {
 
   /// New piece appended to the creation (or null).
   final String? creationUpdate;
+
+  /// Full description of the visual scene as it now stands — set when the
+  /// creation being built is a picture. The app paints it (via the image
+  /// backend) so the creation is SEEN growing, not only read. Null on
+  /// non-visual turns.
+  final String? sceneUpdate;
 
   /// When true, show the [confirm] prompt instead of advancing —
   /// the "confirmation, not silent decision" mechanic.
@@ -97,6 +104,7 @@ class CompanionTurn {
             .where((s) => s.word.trim().isNotEmpty)
             .toList(),
         creationUpdate: j['creation_update']?.toString(),
+        sceneUpdate: j['scene_update']?.toString(),
         needsConfirmation: j['needs_confirmation'] == true,
         confirm: j['confirm'] is Map<String, dynamic>
             ? ConfirmPrompt.fromJson(j['confirm'] as Map<String, dynamic>)

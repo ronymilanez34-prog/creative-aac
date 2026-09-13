@@ -39,12 +39,24 @@ class _PartnerScreenState extends State<PartnerScreen> {
   // scripts) don't re-decode the whole stored log on every frame.
   late Future<Map<String, int>> _desireFuture;
   late Future<UsageStats> _usageFuture;
+  late Future<Map<String, int>> _chipFuture;
+
+  /// Quick-fires and safeguard flags since the partner's last visit —
+  /// captured once on entry, then the visit is marked as the new baseline.
+  SinceReview? _sinceReview;
 
   @override
   void initState() {
     super.initState();
     _desireFuture = _log.freeTextCounts();
     _usageFuture = _log.usageStats();
+    _chipFuture = _log.chipChoiceCounts();
+    _log.sinceLastReview().then((s) {
+      if (!mounted) return;
+      setState(() => _sinceReview = s);
+      // Mark reviewed only after the summary is actually on screen.
+      _log.markReviewed();
+    });
     _load();
   }
 
@@ -178,6 +190,47 @@ class _PartnerScreenState extends State<PartnerScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  // Distress first: what happened since the last visit must
+                  // be the first thing a partner sees — this card is the
+                  // minimal escalation path behind the quick bar and the
+                  // companion's safeguard flag.
+                  if (_sinceReview != null && !_sinceReview!.isEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF3E0),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                            color: const Color(0xFFB25400), width: 2),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '⚠️ מאז הביקור האחרון שלכם',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFFB25400),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            [
+                              if (_sinceReview!.quickFires.isNotEmpty)
+                                'לחיצות חירום (${_sinceReview!.quickFires.length}): '
+                                    '${_sinceReview!.quickFires.join(' · ')}',
+                              if (_sinceReview!.safeguards > 0)
+                                'השיחה עם בן-הלוויה סימנה מצוקה '
+                                    '${_sinceReview!.safeguards} פעמים — כדאי לדבר על זה יחד.',
+                            ].join('\n'),
+                            style:
+                                const TextStyle(fontSize: 15, height: 1.5),
+                          ),
+                        ],
+                      ),
+                    ),
                   const _SectionTitle('הפרופיל האישי'),
                   const Text(
                     'מה שנכתב כאן מוזן ל-AI בכל תור, ונשמר על המכשיר בלבד. '
@@ -280,6 +333,67 @@ class _PartnerScreenState extends State<PartnerScreen> {
                                 ),
                               ),
                             ),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  const _SectionTitle('השערות מהשימוש'),
+                  const Text(
+                    'ראיה, לא משמעות: מה שנבחר שוב ושוב מוצג כהשערה — '
+                    'שום דבר לא נכנס לפרופיל בלי אישור שלכם.',
+                    style: TextStyle(color: AppColors.textSoft),
+                  ),
+                  const SizedBox(height: 8),
+                  FutureBuilder<Map<String, int>>(
+                    future: _chipFuture,
+                    builder: (context, snap) {
+                      final counts = snap.data ?? const {};
+                      final repeated = counts.entries
+                          .where((e) =>
+                              e.value >= 3 &&
+                              !_loves.text.contains(e.key))
+                          .toList()
+                        ..sort((a, b) => b.value.compareTo(a.value));
+                      if (repeated.isEmpty) {
+                        return const Padding(
+                          padding: EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            'עדיין אין בחירות חוזרות מובהקות.',
+                            style: TextStyle(color: AppColors.textSoft),
+                          ),
+                        );
+                      }
+                      return Column(
+                        children: [
+                          for (final e in repeated.take(5))
+                            Card(
+                              color: AppColors.surface,
+                              child: ListTile(
+                                title: Text('"${e.key}"'),
+                                subtitle: Text(
+                                    'נבחר ${e.value} פעמים — אולי תחום עניין?'),
+                                trailing: IconButton(
+                                  tooltip: 'הוספה לתחומי העניין',
+                                  icon: const Icon(Icons.favorite_border),
+                                  onPressed: () => setState(() {
+                                    final cur = _loves.text.trim();
+                                    _loves.text = cur.isEmpty
+                                        ? e.key
+                                        : '$cur, ${e.key}';
+                                    _saved = false;
+                                  }),
+                                ),
+                              ),
+                            ),
+                          const Padding(
+                            padding: EdgeInsets.only(top: 2, bottom: 4),
+                            child: Text(
+                              'אחרי הוספה — לחצו "שמירת הפרופיל" למעלה כדי שההשערה תיכנס בפועל.',
+                              style: TextStyle(
+                                  color: AppColors.textSoft, fontSize: 13),
+                            ),
+                          ),
                         ],
                       );
                     },

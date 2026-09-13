@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -6,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../models/board.dart';
 import '../../models/story.dart';
 import '../../services/board_store.dart';
+import '../../services/creation_image.dart';
 import '../../services/imagine_service.dart';
 import '../../services/speech.dart';
 import '../../services/story_store.dart';
@@ -139,6 +141,15 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
   bool _imagining = false;
   Uint8List? _realImage;
 
+  /// Unsaved work on screen. A creation must never vanish silently —
+  /// leaving with this set asks first (see [_confirmExit]).
+  bool _dirty = false;
+
+  /// One story id per session, so finishing again UPDATES the same saved
+  /// picture instead of piling up near-duplicates.
+  final String _sessionStoryId =
+      DateTime.now().microsecondsSinceEpoch.toString();
+
   /// The look of the generated picture — the creator's choice, like
   /// everything else here.
   _Style _style = _kStyles.first;
@@ -184,6 +195,7 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
   void _addElement(String emoji, String label) {
     _speech.speak(label);
     setState(() {
+      _dirty = true;
       _placed.add(_Placed(
         emoji,
         label,
@@ -215,7 +227,10 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
   void _undo() {
     if (_placed.isEmpty) return;
     _speech.speak('מחקנו את ${_placed.last.label}');
-    setState(() => _placed.removeLast());
+    setState(() {
+      _dirty = true;
+      _placed.removeLast();
+    });
   }
 
   /// Long-press: "what do YOU call this?" — the user's own name wins, in
@@ -232,7 +247,10 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
       onSubmit: (text) {
         final t = text.trim();
         if (t.isEmpty) return;
-        setState(() => p.label = t);
+        setState(() {
+          _dirty = true;
+          p.label = t;
+        });
         _speech.speak(t);
       },
     );
@@ -293,6 +311,7 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
       if (!mounted) return;
       setState(() {
         _imagining = false;
+        _dirty = true;
         _realImage = bytes;
         _paintedLabels = _placed.map((p) => p.label).toList();
         _paintedStyle = _style;
@@ -323,6 +342,7 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
       if (!mounted) return;
       setState(() {
         _imagining = false;
+        _dirty = true;
         _realImage = bytes;
       });
       _speech.speak('הנה!');
@@ -343,29 +363,104 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
         : 'תמונה ב${_bg!.name}, עם ${names.join(', ')}.';
     final collage =
         '${_bg!.emoji}  ${_placed.map((p) => p.emoji).join(' ')}';
+    // The REAL painted picture is the creation — it is saved with the story
+    // (shrunk for storage) so tomorrow it opens, shows and shares. Losing
+    // it was losing the proudest thing made here.
+    String? imageB64;
+    if (_realImage != null) {
+      imageB64 = base64Encode(await shrinkForStorage(_realImage!));
+    }
     final now = DateTime.now();
     final story = Story(
-      id: now.microsecondsSinceEpoch.toString(),
+      id: _sessionStoryId,
       title: 'תמונה ב${_bg!.name}',
-      pages: [StoryPage(emoji: '🖼️', text: '$collage\n$line')],
+      pages: [
+        StoryPage(emoji: '🖼️', text: '$collage\n$line', imageB64: imageB64),
+      ],
       createdAtMs: now.millisecondsSinceEpoch,
     );
     await StoryStore().save(story);
     if (!mounted) return;
+    setState(() => _dirty = false);
     _speech.speak('התמונה נשמרה. $line');
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('התמונה נשמרה ב"הסיפורים שלי" 🖼️')),
     );
   }
 
+  /// Leaving with unsaved work asks first — in the user's language, spoken
+  /// aloud, with saving as the big easy option. "The 'no' is always cheap":
+  /// staying and leaving are both one tap, nothing is lost silently.
+  Future<void> _confirmExit() async {
+    final hasWork = _placed.isNotEmpty || _realImage != null;
+    if (!hasWork || !_dirty) {
+      Navigator.of(context).pop();
+      return;
+    }
+    _speech.speak('לשמור את התמונה לפני שיוצאים?');
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text(
+            'לשמור את התמונה?',
+            textAlign: TextAlign.center,
+          ),
+          content: SizedBox(
+            width: 320,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                BigButton(
+                  label: 'לשמור ולצאת',
+                  emoji: '💾',
+                  onTap: () => Navigator.of(ctx).pop('save'),
+                ),
+                const SizedBox(height: 10),
+                BigButton(
+                  label: 'להמשיך ליצור',
+                  emoji: '🎨',
+                  color: AppColors.accent,
+                  onTap: () => Navigator.of(ctx).pop('stay'),
+                ),
+                const SizedBox(height: 6),
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop('discard'),
+                  child: const Text('לצאת בלי לשמור'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'save') {
+      await _finish();
+      if (mounted) Navigator.of(context).pop();
+    } else if (choice == 'discard') {
+      Navigator.of(context).pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final hasWork = _placed.isNotEmpty || _realImage != null;
+    return PopScope(
+      // System back with unsaved work goes through the same "save first?"
+      // question as the arrow button — no silent loss from any exit.
+      canPop: !hasWork || !_dirty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _confirmExit();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text(_bg == null ? 'בואו נבנה תמונה' : 'התמונה שלך'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_forward),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _confirmExit,
         ),
         actions: [
           if (_bg != null)
@@ -378,6 +473,7 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
       ),
       body: SafeArea(
         child: _bg == null ? _backgroundPicker() : _builder(),
+      ),
       ),
     );
   }
@@ -640,6 +736,7 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
                   onPressed: () {
                     _speech.speak('מחקנו את ${_selected!.label}');
                     setState(() {
+                      _dirty = true;
                       _placed.remove(_selected);
                       _selected = null;
                     });

@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../models/story.dart';
@@ -25,6 +28,22 @@ class _MyStoriesScreenState extends State<MyStoriesScreen> {
   }
 
   void _reload() => setState(() => _future = _store.loadAll());
+
+  /// Decoded list thumbnails (story id → bytes), cached across rebuilds.
+  final Map<String, Uint8List> _thumbCache = {};
+
+  Uint8List? _thumb(Story s) {
+    final b64 = s.pages.isNotEmpty ? s.pages.first.imageB64 : null;
+    if (b64 == null || b64.isEmpty) return null;
+    final bytes = _thumbCache.putIfAbsent(s.id, () {
+      try {
+        return base64Decode(b64);
+      } catch (_) {
+        return Uint8List(0);
+      }
+    });
+    return bytes.isEmpty ? null : bytes;
+  }
 
   Future<void> _delete(Story s) async {
     await _store.delete(s.id);
@@ -90,10 +109,24 @@ class _MyStoriesScreenState extends State<MyStoriesScreen> {
                     padding: const EdgeInsets.all(14),
                     child: Row(
                       children: [
-                        Text(
-                          s.pages.isNotEmpty ? s.pages.first.emoji : '📖',
-                          style: const TextStyle(fontSize: 40),
-                        ),
+                        // The creation's own picture as the thumbnail when
+                        // there is one — "find my picture" at a glance.
+                        if (_thumb(s) != null)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.memory(
+                              _thumb(s)!,
+                              width: 52,
+                              height: 52,
+                              fit: BoxFit.cover,
+                              gaplessPlayback: true,
+                            ),
+                          )
+                        else
+                          Text(
+                            s.pages.isNotEmpty ? s.pages.first.emoji : '📖',
+                            style: const TextStyle(fontSize: 40),
+                          ),
                         const SizedBox(width: 14),
                         Expanded(
                           child: Text(

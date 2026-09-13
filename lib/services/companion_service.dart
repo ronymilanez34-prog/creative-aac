@@ -43,6 +43,10 @@ abstract class CompanionService {
 class MockCompanionService implements CompanionService {
   int _step = 0;
 
+  /// The scripted arc has closed — later taps re-read, they never append
+  /// "and it was a wonderful day" again (the demo used to loop forever).
+  bool _ended = false;
+
   @override
   void dispose() {}
 
@@ -122,13 +126,27 @@ class MockCompanionService implements CompanionService {
         );
 
       default:
+        // "Read it all" re-reads the finished story (the screen speaks
+        // `say`); it must never feed back into the story as text.
+        if (input == 'קרא הכל') {
+          return CompanionTurn(
+            say: creationSoFar.trim().isEmpty
+                ? 'עוד אין סיפור להקריא.'
+                : creationSoFar.trim(),
+            options: const [ChipOption(emoji: '🔊', label: 'קרא הכל')],
+          );
+        }
+        if (_ended) {
+          return const CompanionTurn(
+            say: 'הסיפור שלך מוכן 🌟 אפשר לשמוע שוב, או לצאת ולשמור אותו.',
+            options: [ChipOption(emoji: '🔊', label: 'קרא הכל')],
+          );
+        }
+        _ended = true;
         return CompanionTurn(
-          say: 'איזה סיפור יפה יצרת! 🌟 רוצה לשמוע אותו מההתחלה, או להתחיל חדש?',
+          say: 'איזה סיפור יפה יצרת! 🌟 רוצה לשמוע אותו מההתחלה?',
           creationUpdate: 'וכך, $input. וזה היה יום נהדר. הסוף. 🌟',
-          options: const [
-            ChipOption(emoji: '🔊', label: 'קרא הכל'),
-            ChipOption(emoji: '🪄', label: 'סיפור חדש'),
-          ],
+          options: const [ChipOption(emoji: '🔊', label: 'קרא הכל')],
         );
     }
   }
