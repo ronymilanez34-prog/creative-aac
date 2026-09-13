@@ -4,6 +4,8 @@
 /// label they already know, the exact image they already recognize, and the
 /// text to speak. Familiarity is the whole point — see docs/VISION.md.
 
+library;
+
 class BoardWord {
   const BoardWord({
     required this.id,
