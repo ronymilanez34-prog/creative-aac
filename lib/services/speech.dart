@@ -27,10 +27,65 @@ class Speech {
     return t.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
+  /// Once per app run: a near-silent utterance fired from INSIDE a user
+  /// gesture. iOS (Safari, and web views) refuses speech that did not
+  /// start from a touch — without this, every later speak() that follows
+  /// an await (a model turn, a timer) is silently dropped.
+  static bool _warmedUp = false;
+
+  Future<void> warmUp() async {
+    if (_warmedUp) return;
+    _warmedUp = true;
+    try {
+      await _ensureInit();
+      await _tts?.speak(' ');
+      await _tts?.stop();
+    } catch (_) {
+      // Warm-up is best-effort; real speaks carry their own handling.
+    }
+  }
+
+  /// Hebrew goes by two BCP-47 codes in the wild: 'he' and the legacy
+  /// 'iw' (older Android engines register only the latter). Try both —
+  /// a failed setLanguage is how "the voice doesn't work on the phone"
+  /// happens with no error anywhere.
+  Future<void> _setHebrew(FlutterTts tts) async {
+    try {
+      final r = await tts.setLanguage('he-IL');
+      if (r == 0 || r == false) await tts.setLanguage('iw-IL');
+    } catch (_) {
+      try {
+        await tts.setLanguage('iw-IL');
+      } catch (_) {}
+    }
+  }
+
+  /// Whether the device has any Hebrew voice. null = the engine didn't
+  /// say (common on web) — treat as "probably fine", never as failure.
+  Future<bool?> hasHebrewVoice() async {
+    try {
+      await _ensureInit();
+      final voices = await _tts?.getVoices;
+      if (voices is! List || voices.isEmpty) return null;
+      for (final v in voices) {
+        final s = (v is Map ? '${v['locale']} ${v['name']}' : v.toString())
+            .toLowerCase();
+        if (s.contains('he-') || s.contains('he_') ||
+            s.contains('iw-') || s.contains('iw_') ||
+            s.contains('hebrew')) {
+          return true;
+        }
+      }
+      return false;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _ensureInit() async {
     if (_ready) return;
     final tts = FlutterTts();
-    await tts.setLanguage('he-IL');
+    await _setHebrew(tts);
     await tts.setSpeechRate(0.45); // calm, clear pace
     await tts.setVolume(1.0);
     await tts.setPitch(1.0);
@@ -43,7 +98,8 @@ class Speech {
     if (trimmed.isEmpty) return;
     await _ensureInit();
     await _tts?.stop();
-    await _tts?.setLanguage('he-IL');
+    final tts = _tts;
+    if (tts != null) await _setHebrew(tts);
     await _tts?.speak(trimmed);
   }
 
