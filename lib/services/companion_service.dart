@@ -24,10 +24,14 @@ abstract class CompanionService {
   /// user's own choice. [lowEnergy] asks for the reduced, calmer variant.
   /// [paceHint] is the live pace signal ('flowing' | 'hesitant' | null),
   /// computed by the screen from recent selection latencies.
+  /// [sceneSoFar] is the model's own last scene description — for a
+  /// picture creation this IS the creation state (the text may be empty),
+  /// so it rides back in every turn.
   Future<CompanionTurn> turn(
     String userInput, {
     String creationSoFar = '',
     String? creationSummary,
+    String? sceneSoFar,
     List<TurnMessage> history = const [],
     InputSource source = InputSource.user,
     bool lowEnergy = false,
@@ -70,6 +74,7 @@ class MockCompanionService implements CompanionService {
     String userInput, {
     String creationSoFar = '',
     String? creationSummary,
+    String? sceneSoFar,
     List<TurnMessage> history = const [],
     InputSource source = InputSource.user,
     bool lowEnergy = false,

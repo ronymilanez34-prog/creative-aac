@@ -158,6 +158,7 @@ async function runCompanionTurn(data) {
     profile,
     creationSoFar,
     creationSummary,
+    sceneSoFar,
     history,
     userInput,
     inputSource,
@@ -172,6 +173,7 @@ async function runCompanionTurn(data) {
     profile,
     creationSoFar,
     creationSummary: typeof creationSummary === "string" ? creationSummary : undefined,
+    sceneSoFar: typeof sceneSoFar === "string" ? sceneSoFar : undefined,
     lowEnergy: lowEnergy === true,
     paceHint: typeof paceHint === "string" ? paceHint : undefined,
   });
