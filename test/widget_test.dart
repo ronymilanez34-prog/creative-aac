@@ -16,6 +16,7 @@ import 'package:creative_aac/services/creation_context.dart';
 import 'package:creative_aac/services/image_sink.dart';
 import 'package:creative_aac/services/interaction_log.dart';
 import 'package:creative_aac/services/obz_importer.dart';
+import 'package:creative_aac/services/speech.dart';
 
 void main() {
   testWidgets('home screen shows the calm landing actions', (tester) async {
@@ -356,6 +357,19 @@ void main() {
     // And any further input after the ending never re-appends the closing.
     final after = await mock.turn('עוד', creationSoFar: 'היה היה כלב. הסוף.');
     expect(after.creationUpdate, isNull);
+  });
+
+  test('spoken text keeps צ\'יקו one word and drops emoji', () {
+    // ASCII apostrophe in a Hebrew word → a real geresh, so TTS reads one
+    // word instead of spelling random letters (field bug, 16.9).
+    expect(Speech.speakable("צ'יקו רץ"), 'צ׳יקו רץ');
+    expect(Speech.speakable('צ’יקו'), 'צ׳יקו');
+    // Emoji are for the eyes — never spoken.
+    expect(Speech.speakable('היי! 🙂 מה יוצרים היום? ✨'),
+        'היי! מה יוצרים היום?');
+    // Plain text passes untouched.
+    expect(Speech.speakable('אריק יושב באוטובוס.'), 'אריק יושב באוטובוס.');
+    expect(Speech.speakable('  '), '');
   });
 
   test('obz importer parses a bare .obf board with Hebrew labels', () async {

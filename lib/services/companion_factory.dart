@@ -16,7 +16,15 @@ Future<CompanionService> buildCompanionService() async {
   final boardWords = await BoardStore().load();
   var promptText = profile.toPromptText();
   if (boardWords.isNotEmpty) {
-    final familiar = boardWords.take(60).map((w) => w.label).join(', ');
+    // A button's spoken text often carries the MEANING behind a private
+    // name ("צ'יקו" speaks as "צ'יקו הכלב שלי") — ride it along so the
+    // model knows who Chiko is, not only that the word exists.
+    final familiar = boardWords.take(60).map((w) {
+      final speak = w.speak?.trim() ?? '';
+      return speak.isNotEmpty && speak != w.label
+          ? '${w.label} (במילותיו: $speak)'
+          : w.label;
+    }).join(', ');
     promptText = '$promptText\n'
             'אוצר המילים המוכר שלו (מהלוח האישי שיובא — העדף להציע מתוכו): '
             '$familiar.'
