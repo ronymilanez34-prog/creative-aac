@@ -83,6 +83,11 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// model's default (soft warm illustration, per the prompt).
   SceneStyle? _sceneStyle;
 
+  /// The model's last scene description — sent back every turn, because
+  /// for a picture creation this IS the creation state (the text can be
+  /// empty while a whole scene already exists).
+  String? _lastScene;
+
   /// How many creation pieces were already saved — leaving with more than
   /// this on screen asks first (see [_confirmExit]); nothing vanishes
   /// silently.
@@ -377,6 +382,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
         input,
         creationSoFar: ctx.creationSoFar,
         creationSummary: ctx.creationSummary,
+        sceneSoFar: _lastScene,
         history: _historyForBackend(input),
         source: source,
         lowEnergy: _lowEnergy,
@@ -412,8 +418,11 @@ class _CompanionScreenState extends State<CompanionScreen> {
       // background; the words never wait for the painter. The finished
       // picture becomes the CURRENT PAGE's picture.
       final scene = next.sceneUpdate?.trim() ?? '';
-      if (scene.isNotEmpty && ImagineService.available) {
-        unawaited(_paintScene(scene, forPage: _currentPage));
+      if (scene.isNotEmpty) {
+        _lastScene = scene;
+        if (ImagineService.available) {
+          unawaited(_paintScene(scene, forPage: _currentPage));
+        }
       }
     } catch (e) {
       if (!mounted) return;
@@ -458,13 +467,14 @@ class _CompanionScreenState extends State<CompanionScreen> {
   }
 
   /// "דף חדש": closes the current page — the next sentences and the next
-  /// picture belong to a fresh page (same characters, new scene).
-  void _newPage() {
-    if (!_currentPageHasContent) return; // page still empty
+  /// picture belong to a fresh page (same characters, new scene). A real
+  /// turn goes to the model so it CONTINUES the same creation on the new
+  /// page (field bug 16.9: the marker alone read as "start something
+  /// new" and the type menu came back).
+  Future<void> _newPage() async {
+    if (!_currentPageHasContent || _busy) return; // page still empty
     setState(() {
       _currentPage++;
-      // A user bubble, so the model hears about it in the history and
-      // opens a fresh scene (see the prompt's scene_update section).
       _thread.add(_ThreadItem.user('דף חדש', emoji: '📄'));
     });
     _scrollThreadToEnd();
@@ -478,6 +488,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
       lowEnergy: _lowEnergy,
       latencyMs: 0,
     ));
+    await _performTurn('דף חדש', InputSource.user);
+    if (mounted && _failed) _speak('רגע, משהו השתבש. אפשר לנסות שוב.');
   }
 
   /// Picking a style repaints the current picture in it; with no picture

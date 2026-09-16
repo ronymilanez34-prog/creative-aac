@@ -52,6 +52,7 @@ class ClaudeCompanionService implements CompanionService {
     String userInput, {
     String creationSoFar = '',
     String? creationSummary,
+    String? sceneSoFar,
     List<TurnMessage> history = const [],
     InputSource source = InputSource.user,
     bool lowEnergy = false,
@@ -72,6 +73,10 @@ class ClaudeCompanionService implements CompanionService {
             // decides when the switch happens).
             if (creationSummary != null && creationSummary.isNotEmpty)
               'creationSummary': creationSummary,
+            // The model's own last scene description — for a picture
+            // creation this IS the creation state.
+            if (sceneSoFar != null && sceneSoFar.isNotEmpty)
+              'sceneSoFar': sceneSoFar,
             // The recent conversation rides along on every turn — the model
             // is stateless, so this IS its memory of the dialogue.
             'history': [

@@ -136,9 +136,13 @@ const INSTRUCTIONS = `אתה בן-לוויה ליצירה משותפת עבור 
 - כשלא נבחר סגנון, כלול בתיאור סגנון ברירת-מחדל: איור מצויר רך וחם.
   לא צילום ריאליסטי — דמות ריאליסטית זרה על המסך אינה הדמות שהוא יצר.
   מרגע שהמשתמש בחר סגנון, הסגנון שלו קובע.
-- "דף חדש" בהיסטוריה פירושו שהמשתמש פתח דף חדש ביצירה (כמה משפטים
-  ותמונה אחת לכל דף): ה-scene_update הבא מתאר קומפוזיציה חדשה — מקום
-  או רגע חדש בסיפור — עם אותן דמויות בדיוק.
+- "דף חדש" (כקלט או בהיסטוריה) הוא לעולם לא התחלה חדשה: זו אותה
+  יצירה שממשיכה בעמוד הבא (כמה משפטים ותמונה אחת לכל דף). המשך את
+  הסיפור הקיים — הצע מה קורה עכשיו לדמויות, אל תחזור לתפריט סוגי
+  יצירה — וה-scene_update הבא מתאר קומפוזיציה חדשה, מקום או רגע חדש,
+  עם אותן דמויות בדיוק.
+- יצירה ויזואלית עם סצנה קיימת היא יצירה פעילה גם כשטקסט היצירה ריק
+  — הסצנה היא התוכן. אל תציע "מה ניצור?" מחדש כל עוד יש סצנה.
 - "creation_update" ממשיך לשאת את המשפט המילולי של מה שנוסף;
   "scene_update" הוא התמונה. תור בלי שינוי ויזואלי, או יצירה שאינה
   ויזואלית — scene_update: null.
@@ -210,7 +214,7 @@ const PACE_NOTES = {
 // lib/services/creation_context.dart.
 const SUMMARY_ASK_CHARS = 700;
 
-function buildSystemPrompt({ profile, creationSoFar, creationSummary, lowEnergy, paceHint }) {
+function buildSystemPrompt({ profile, creationSoFar, creationSummary, sceneSoFar, lowEnergy, paceHint }) {
   const profileText =
     profile && String(profile).trim() ? String(profile).trim() : "אין עדיין פרופיל — פגוש אותו בעדינות ולמד מהתגובות.";
   const creationText =
@@ -236,6 +240,13 @@ function buildSystemPrompt({ profile, creationSoFar, creationSummary, lowEnergy,
   const creationBlock = summaryText
     ? `# תקציר היצירה עד כה\n${summaryText}\n\n# הקטעים האחרונים של היצירה\n${creationText}`
     : `# היצירה עד עכשיו\n${creationText}`;
+  // A picture creation's state lives in the scene, not the text — with a
+  // scene present, an "empty" creation is NOT a fresh start.
+  const sceneText =
+    sceneSoFar && String(sceneSoFar).trim() ? String(sceneSoFar).trim() : "";
+  const sceneBlock = sceneText
+    ? `\n\n# הסצנה כפי שצוירה עד עכשיו (יצירה ויזואלית פעילה — לא מתחילים מחדש)\n${sceneText}`
+    : "";
 
   return [
     { type: "text", text: INSTRUCTIONS },
@@ -246,7 +257,7 @@ function buildSystemPrompt({ profile, creationSoFar, creationSummary, lowEnergy,
     },
     {
       type: "text",
-      text: `${lowEnergyBlock}${paceBlock}${summaryAskBlock}${creationBlock}`,
+      text: `${lowEnergyBlock}${paceBlock}${summaryAskBlock}${creationBlock}${sceneBlock}`,
     },
   ];
 }
