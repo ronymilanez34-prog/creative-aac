@@ -5,6 +5,8 @@
 /// not replace it. Core-word selection follows adult AAC practice: high
 /// frequency, cross-context words first.
 
+library;
+
 class CoreWord {
   const CoreWord(this.emoji, this.label);
 

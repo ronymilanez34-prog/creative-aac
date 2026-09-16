@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../config.dart';
-import '../services/board_store.dart';
-import '../services/claude_companion_service.dart';
-import '../services/companion_service.dart';
-import '../services/profile_store.dart';
+import '../services/companion_factory.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
 import 'build/build_picture_screen.dart';
@@ -19,39 +16,14 @@ import 'partner_screen.dart';
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
-  /// Real Claude companion when a backend is configured (see lib/config.dart),
-  /// otherwise the offline scripted demo — the app always runs.
-  CompanionService _companionService(String profileText) =>
-      kCompanionEndpoint.isEmpty
-          ? MockCompanionService()
-          : ClaudeCompanionService(
-              endpoint: kCompanionEndpoint,
-              appKey: kCompanionAppKey,
-              profileText:
-                  profileText.isNotEmpty ? profileText : kDefaultProfile,
-            );
-
   Future<void> _openCompanion(BuildContext context) async {
-    // The personal profile (edited in partner mode) feeds the prompt — and so
-    // does the vocabulary imported from the user's own AAC board: familiar
-    // words are the wide-walls material the AI should offer chips from.
-    final profile = await ProfileStore().load();
-    final boardWords = await BoardStore().load();
-    var promptText = profile.toPromptText();
-    if (boardWords.isNotEmpty) {
-      final familiar =
-          boardWords.take(60).map((w) => w.label).join(', ');
-      promptText = '$promptText\n'
-              'אוצר המילים המוכר שלו (מהלוח האישי שיובא — העדף להציע מתוכו): '
-              '$familiar.'
-          .trim();
-    }
+    // Profile, imported vocabulary and opening topics are all baked in by
+    // the shared factory — the same recipe "continue this creation" uses.
+    final service = await buildCompanionService();
     if (!context.mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => CompanionScreen(
-          service: _companionService(promptText),
-        ),
+        builder: (_) => CompanionScreen(service: service),
       ),
     );
   }

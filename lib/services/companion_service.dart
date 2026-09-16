@@ -13,7 +13,10 @@ abstract class CompanionService {
   /// One turn: given the latest input, return the companion's response.
   ///
   /// [creationSoFar] is the accumulated creation text (the service is
-  /// stateless about it — the screen owns the creation).
+  /// stateless about it — the screen owns the creation). For a long
+  /// creation the screen sends only the newest pieces here, with
+  /// [creationSummary] — the model-maintained rolling summary — carrying
+  /// the rest (see creation_context.dart).
   /// [history] is the recent visible conversation (without the current
   /// input) — without it the model has no memory between turns and loses
   /// the thread of what is being built.
@@ -24,6 +27,7 @@ abstract class CompanionService {
   Future<CompanionTurn> turn(
     String userInput, {
     String creationSoFar = '',
+    String? creationSummary,
     List<TurnMessage> history = const [],
     InputSource source = InputSource.user,
     bool lowEnergy = false,
@@ -65,6 +69,7 @@ class MockCompanionService implements CompanionService {
   Future<CompanionTurn> turn(
     String userInput, {
     String creationSoFar = '',
+    String? creationSummary,
     List<TurnMessage> history = const [],
     InputSource source = InputSource.user,
     bool lowEnergy = false,

@@ -10,9 +10,11 @@ import '../models/story.dart';
 import '../services/board_store.dart';
 import '../services/chip_layout.dart';
 import '../services/companion_service.dart';
+import '../services/creation_context.dart';
 import '../services/creation_image.dart';
 import '../services/imagine_service.dart';
 import '../services/interaction_log.dart';
+import '../services/scene_style.dart';
 import '../services/speech.dart';
 import '../services/story_store.dart';
 import '../theme.dart';
@@ -31,9 +33,15 @@ import '../widgets/quick_bar.dart';
 /// Driven by [CompanionService]; the demo passes a [MockCompanionService] so it
 /// runs instantly with no backend, the real app passes ClaudeCompanionService.
 class CompanionScreen extends StatefulWidget {
-  const CompanionScreen({super.key, required this.service});
+  const CompanionScreen({super.key, required this.service, this.resumeStory});
 
   final CompanionService service;
+
+  /// When set, the loop reopens THIS saved creation instead of starting
+  /// from nothing — "continue from yesterday" (USER_LENS 2.4): the pieces,
+  /// the pictures, and the rolling summary are seeded back in, and saving
+  /// updates the same story.
+  final Story? resumeStory;
 
   @override
   State<CompanionScreen> createState() => _CompanionScreenState();
@@ -49,9 +57,31 @@ class _CompanionScreenState extends State<CompanionScreen> {
   late CompanionTurn _turn;
 
   /// One story id per session, so pressing save again UPDATES the same
-  /// saved creation instead of piling up near-duplicates.
-  final String _sessionStoryId =
-      DateTime.now().microsecondsSinceEpoch.toString();
+  /// saved creation instead of piling up near-duplicates. A resumed
+  /// creation keeps its original id — tomorrow's work lands in the same
+  /// story, not next to it.
+  late final String _sessionStoryId;
+
+  /// Rolling summary of the whole creation, maintained by the model once
+  /// the creation grows long (creation_context.dart decides when only the
+  /// newest pieces travel). Saved with the story for the next session.
+  String? _creationSummary;
+
+  /// A page is a few sentences with ONE picture. Pieces are grouped into
+  /// pages; "דף חדש" closes the page and the next picture starts fresh —
+  /// while keeping the same characters (the previous picture is the edit
+  /// base). Saved stories keep one StoryPage per page.
+  int _currentPage = 0;
+
+  /// Which page each creation piece belongs to (parallel to [_creation]).
+  final List<int> _piecePages = [];
+
+  /// The picture of each page (page index → bytes).
+  final Map<int, Uint8List> _sceneSnapshots = {};
+
+  /// The picture style the creator picked (palette button); null = the
+  /// model's default (soft warm illustration, per the prompt).
+  SceneStyle? _sceneStyle;
 
   /// How many creation pieces were already saved — leaving with more than
   /// this on screen asks first (see [_confirmExit]); nothing vanishes
@@ -112,9 +142,55 @@ class _CompanionScreenState extends State<CompanionScreen> {
   @override
   void initState() {
     super.initState();
-    _turn = widget.service.opening();
+    final resume = widget.resumeStory;
+    if (resume != null) {
+      _sessionStoryId = resume.id;
+      _creationSummary = resume.summary;
+      for (var i = 0; i < resume.pages.length; i++) {
+        final p = resume.pages[i];
+        // Each saved page comes back as one piece on its own page — the
+        // page structure (a few sentences + one picture) survives the trip.
+        _creation.add(CreationPiece(
+          text: p.text,
+          userInput: '',
+          source: InputSource.user,
+          questions: p.questions,
+        ));
+        _piecePages.add(i);
+        final b64 = p.imageB64;
+        if (b64 != null && b64.isNotEmpty) {
+          try {
+            _sceneSnapshots[i] = base64Decode(b64);
+          } catch (_) {}
+        }
+      }
+      if (resume.pages.isNotEmpty) _currentPage = resume.pages.length - 1;
+      // Nothing is unsaved yet — leaving right away must not ask.
+      _savedPieces = _creation.length;
+      // The newest picture is the scene to keep editing from.
+      if (_sceneSnapshots.isNotEmpty) {
+        _sceneImage = _sceneSnapshots.entries
+            .reduce((a, b) => a.key > b.key ? a : b)
+            .value;
+      }
+      _turn = const CompanionTurn(
+        say: 'חזרנו ליצירה שלך! הנה היא — ממשיכים מאיפה שעצרנו?',
+        saySymbols: [
+          SaySymbol(emoji: '👋', word: 'חזרנו'),
+          SaySymbol(emoji: '🎨', word: 'יצירה'),
+          SaySymbol(emoji: '▶️', word: 'להמשיך'),
+        ],
+        options: [
+          ChipOption(emoji: '▶️', label: 'בואו נמשיך'),
+          ChipOption(emoji: '🔊', label: 'קרא הכל'),
+        ],
+      );
+    } else {
+      _sessionStoryId = DateTime.now().microsecondsSinceEpoch.toString();
+      _turn = widget.service.opening();
+    }
     _thread.add(_ThreadItem.companion(_turn.say, _turn.saySymbols));
-    _displayOptions = _chipSlots.arrange(_turn.options);
+    _displayOptions = _chipSlots.arrange(_withoutStandingDoor(_turn.options));
     _optionsShownAt = DateTime.now();
     BoardStore().load().then((words) {
       if (mounted && words.isNotEmpty) setState(() => _boardWords = words);
@@ -138,6 +214,13 @@ class _CompanionScreenState extends State<CompanionScreen> {
 
   String get _creationText => _creation.map((p) => p.text).join(' ');
 
+  /// The sentences of the page being written now — what the creation card
+  /// shows (a page is a few sentences with one picture).
+  String get _currentPageText => [
+        for (var i = 0; i < _creation.length; i++)
+          if (_piecePages[i] == _currentPage) _creation[i].text,
+      ].join(' ');
+
   /// The chips actually on screen right now (low-energy shows only 2) —
   /// the list the log must record, not the full generated set.
   List<ChipOption> get _visibleOptions =>
@@ -153,6 +236,12 @@ class _CompanionScreenState extends State<CompanionScreen> {
     return null;
   }
 
+  /// The screen appends its own always-there "משהו אחר" chip (see
+  /// _OptionsArea) — a model that offers one too (seen live 16.9) would
+  /// put the same door on screen twice.
+  static List<ChipOption> _withoutStandingDoor(List<ChipOption> options) =>
+      options.where((o) => o.label.trim() != 'משהו אחר').toList();
+
   void _applyTurn(CompanionTurn turn, {bool speak = true}) {
     // A safeguard flag must reach a human, not only a banner: it is logged
     // and surfaces on the partner's next visit ("since your last review").
@@ -160,7 +249,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
     setState(() {
       _turn = turn;
       _thread.add(_ThreadItem.companion(turn.say, turn.saySymbols));
-      _displayOptions = _chipSlots.arrange(turn.options);
+      _displayOptions = _chipSlots.arrange(_withoutStandingDoor(turn.options));
       _optionsShownAt = DateTime.now();
       _failed = false;
       _busy = false;
@@ -179,6 +268,13 @@ class _CompanionScreenState extends State<CompanionScreen> {
     final t = text.trim();
     if (t.isEmpty || _busy) return;
     _input.clear();
+
+    // Re-reading is local: speaking what is already on screen needs no
+    // model turn (and on the resumed-creation opener there IS no turn yet).
+    if (t == 'קרא הכל' && _creation.isNotEmpty) {
+      _speak(_creationText);
+      return;
+    }
 
     final source = _partnerArmed ? InputSource.partner : InputSource.user;
     // The choice enters the visible conversation immediately — dialogue
@@ -257,9 +353,16 @@ class _CompanionScreenState extends State<CompanionScreen> {
       _lastSource = source;
     });
     try {
+      // A long creation travels as rolling summary + newest pieces; a
+      // short one travels whole (creation_context.dart).
+      final ctx = creationContext(
+        [for (final p in _creation) p.text],
+        _creationSummary,
+      );
       final next = await widget.service.turn(
         input,
-        creationSoFar: _creationText,
+        creationSoFar: ctx.creationSoFar,
+        creationSummary: ctx.creationSummary,
         history: _historyForBackend(input),
         source: source,
         lowEnergy: _lowEnergy,
@@ -267,23 +370,36 @@ class _CompanionScreenState extends State<CompanionScreen> {
       );
       if (!mounted) return;
 
+      final refreshed = next.creationSummary?.trim() ?? '';
+      if (refreshed.isNotEmpty) _creationSummary = refreshed;
+
       if (next.creationUpdate != null &&
           next.creationUpdate!.trim().isNotEmpty) {
-        _creation.add(CreationPiece(
-          text: next.creationUpdate!.trim(),
-          userInput: input,
-          source: source,
-          questions: next.questions,
-        ));
-        _thread.add(_ThreadItem.creation(next.creationUpdate!.trim()));
+        // Guard against the whole creation coming back as the "update"
+        // (seen live 16.9 — every piece doubled on screen).
+        final piece = extractNewPiece(
+          next.creationUpdate!,
+          [for (final p in _creation) p.text],
+        );
+        if (piece.isNotEmpty) {
+          _creation.add(CreationPiece(
+            text: piece,
+            userInput: input,
+            source: source,
+            questions: next.questions,
+          ));
+          _piecePages.add(_currentPage);
+          _thread.add(_ThreadItem.creation(piece));
+        }
       }
       _applyTurn(next);
       _scrollCreationToEnd();
       // A visual creation paints itself as it grows — quietly, in the
-      // background; the words never wait for the painter.
+      // background; the words never wait for the painter. The finished
+      // picture becomes the CURRENT PAGE's picture.
       final scene = next.sceneUpdate?.trim() ?? '';
       if (scene.isNotEmpty && ImagineService.available) {
-        unawaited(_paintScene(scene));
+        unawaited(_paintScene(scene, forPage: _currentPage));
       }
     } catch (e) {
       if (!mounted) return;
@@ -299,22 +415,106 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// The existing picture rides along as the edit base so the scene keeps
   /// its look between turns. Failure is quiet: the words are still there,
   /// and the next scene_update tries again.
-  Future<void> _paintScene(String scene) async {
+  Future<void> _paintScene(String scene, {required int forPage}) async {
     if (_painting) return;
     setState(() => _painting = true);
     try {
-      final bytes = await ImagineService().imagine(
-        '$scene. בלי טקסט בתמונה.',
-        baseImage: _sceneImage,
-      );
+      // This page's own picture is the edit base when it has one; a fresh
+      // page starts from the previous picture — a NEW composition that
+      // keeps the same characters (the "same character, new page" ask).
+      final base = _sceneSnapshots[forPage] ?? _sceneImage;
+      final freshPage = _sceneSnapshots[forPage] == null && base != null;
+      final style = _sceneStyle == null ? '' : ' סגנון: ${_sceneStyle!.prompt}.';
+      final prompt = freshPage
+          ? 'דף חדש בסיפור: צייר סצנה חדשה — $scene. שמור בדיוק על אותן '
+              'דמויות כמו בתמונה הקיימת.$style בלי טקסט בתמונה.'
+          : '$scene.$style בלי טקסט בתמונה.';
+      final bytes = await ImagineService().imagine(prompt, baseImage: base);
       if (!mounted) return;
       setState(() {
         _painting = false;
         _sceneImage = bytes;
+        _sceneSnapshots[forPage] = bytes;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() => _painting = false);
+    }
+  }
+
+  /// "דף חדש": closes the current page — the next sentences and the next
+  /// picture belong to a fresh page (same characters, new scene).
+  void _newPage() {
+    if (!_piecePages.contains(_currentPage)) return; // page still empty
+    setState(() {
+      _currentPage++;
+      // A user bubble, so the model hears about it in the history and
+      // opens a fresh scene (see the prompt's scene_update section).
+      _thread.add(_ThreadItem.user('דף חדש', emoji: '📄'));
+    });
+    _scrollThreadToEnd();
+    _speak('דף חדש!');
+    unawaited(_log.logSelection(
+      shownOptions: const [],
+      chosen: 'דף חדש',
+      chosenIndex: -1,
+      kind: 'page',
+      source: 'user',
+      lowEnergy: _lowEnergy,
+      latencyMs: 0,
+    ));
+  }
+
+  /// Picking a style repaints the current picture in it; with no picture
+  /// yet, the choice simply shapes every picture from here on.
+  Future<void> _chooseStyle() async {
+    final picked = await showModalBottomSheet<SceneStyle>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              alignment: WrapAlignment.center,
+              children: [
+                for (final s in kSceneStyles)
+                  ChoiceChip(
+                    avatar: Text(s.emoji, style: const TextStyle(fontSize: 20)),
+                    label: Text(s.name, style: const TextStyle(fontSize: 16)),
+                    selected: _sceneStyle == s,
+                    onSelected: (_) => Navigator.of(ctx).pop(s),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _sceneStyle = picked);
+    _speak(picked.name);
+    if (_sceneImage != null && ImagineService.available && !_painting) {
+      // Same scene, new look — repaint the current page's picture.
+      setState(() => _painting = true);
+      try {
+        final bytes = await ImagineService().imagine(
+          'אותה סצנה בדיוק, צייר את כל התמונה מחדש בסגנון: ${picked.prompt}. '
+          'בלי טקסט בתמונה.',
+          baseImage: _sceneImage,
+        );
+        if (!mounted) return;
+        setState(() {
+          _painting = false;
+          _sceneImage = bytes;
+          _sceneSnapshots[_currentPage] = bytes;
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setState(() => _painting = false);
+      }
     }
   }
 
@@ -325,24 +525,34 @@ class _CompanionScreenState extends State<CompanionScreen> {
     final now = DateTime.now();
     final firstWords =
         _creation.first.text.split(RegExp(r'\s+')).take(4).join(' ');
-    // The painted scene is part of the creation — it rides on the first
-    // page (shrunk), so it opens tomorrow and shows as the thumbnail.
-    String? imageB64;
-    if (_sceneImage != null) {
-      imageB64 = base64Encode(await shrinkForStorage(_sceneImage!));
+    // One StoryPage per PAGE: its few sentences joined, its questions, and
+    // ITS picture (shrunk) — reading back turns the pages and watches the
+    // pictures change, exactly as they were made.
+    final pages = <StoryPage>[];
+    for (var page = 0; page <= _currentPage; page++) {
+      final texts = <String>[];
+      final questions = <String>[];
+      for (var i = 0; i < _creation.length; i++) {
+        if (_piecePages[i] != page) continue;
+        texts.add(_creation[i].text);
+        questions.addAll(_creation[i].questions);
+      }
+      if (texts.isEmpty) continue; // an opened-but-empty page saves nothing
+      final snapshot = _sceneSnapshots[page];
+      pages.add(StoryPage(
+        text: texts.join(' '),
+        emoji: '✨',
+        questions: questions,
+        imageB64: snapshot == null
+            ? null
+            : base64Encode(await shrinkForStorage(snapshot)),
+      ));
     }
     final story = Story(
       id: _sessionStoryId,
       title: firstWords.isEmpty ? 'יצירה' : firstWords,
-      pages: [
-        for (var i = 0; i < _creation.length; i++)
-          StoryPage(
-            text: _creation[i].text,
-            emoji: '✨',
-            questions: _creation[i].questions,
-            imageB64: i == 0 ? imageB64 : null,
-          ),
-      ],
+      summary: _creationSummary,
+      pages: pages,
       createdAtMs: now.millisecondsSinceEpoch,
     );
     await StoryStore().save(story);
@@ -473,6 +683,11 @@ class _CompanionScreenState extends State<CompanionScreen> {
         ),
         actions: [
           IconButton(
+            tooltip: 'סגנון התמונה',
+            icon: const Icon(Icons.palette_outlined),
+            onPressed: _chooseStyle,
+          ),
+          IconButton(
             tooltip: 'שמירת היצירה',
             icon: const Icon(Icons.bookmark_add_outlined),
             onPressed: _creation.isEmpty ? null : _saveCreation,
@@ -503,9 +718,10 @@ class _CompanionScreenState extends State<CompanionScreen> {
           children: [
             if (_turn.safeguard) const _SafeguardBanner(),
             _CreationCard(
-              text: _creationText,
+              text: _currentPageText,
+              pageNumber: _currentPage > 0 ? _currentPage + 1 : null,
               scroll: _creationScroll,
-              image: _sceneImage,
+              image: _sceneSnapshots[_currentPage],
               painting: _painting,
             ),
             Expanded(
@@ -564,6 +780,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
                 lowEnergy: _lowEnergy,
                 partnerMode: _partnerMode,
                 partnerArmed: _partnerArmed,
+                // "דף חדש" appears once the current page has content.
+                onNewPage:
+                    _piecePages.contains(_currentPage) ? _newPage : null,
                 onPartnerArmed: (v) => setState(() => _partnerArmed = v),
                 onChip: (label, index) => _send(label,
                     kind: 'chip',
@@ -597,10 +816,14 @@ class _CreationCard extends StatelessWidget {
     required this.scroll,
     this.image,
     this.painting = false,
+    this.pageNumber,
   });
 
   final String text;
   final ScrollController scroll;
+
+  /// Shown small when the creation has more than one page.
+  final int? pageNumber;
 
   /// The painted scene of a visual creation — shown above the words.
   final Uint8List? image;
@@ -624,6 +847,18 @@ class _CreationCard extends StatelessWidget {
       ),
       child: Column(
         children: [
+          if (pageNumber != null)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '📄 דף $pageNumber',
+                  style:
+                      const TextStyle(fontSize: 13, color: AppColors.textSoft),
+                ),
+              ),
+            ),
           if (hasImage) ...[
             Stack(
               children: [
@@ -841,7 +1076,10 @@ class _CompanionBubble extends StatelessWidget {
         children: [
           const Text('🤖', style: TextStyle(fontSize: 30)),
           const SizedBox(width: 8),
-          Expanded(
+          // Flexible, not Expanded: the bubble hugs its words. A short
+          // symbol strip inside a full-width bubble read as "half-empty"
+          // on the live site (16.9).
+          Flexible(
             child: Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -1033,6 +1271,7 @@ class _OptionsArea extends StatelessWidget {
     required this.onPartnerArmed,
     required this.onChip,
     required this.onSubmit,
+    this.onNewPage,
   });
 
   final List<ChipOption> options;
@@ -1044,6 +1283,10 @@ class _OptionsArea extends StatelessWidget {
   final ValueChanged<bool> onPartnerArmed;
   final void Function(String label, int index) onChip;
   final ValueChanged<String> onSubmit;
+
+  /// Closes the current page (a few sentences + one picture) and opens the
+  /// next; hidden while the current page is still empty.
+  final VoidCallback? onNewPage;
 
   @override
   Widget build(BuildContext context) {
@@ -1080,6 +1323,12 @@ class _OptionsArea extends StatelessWidget {
                 big: lowEnergy,
                 onTap: () => onChip('משהו אחר', -1),
               ),
+              if (onNewPage != null)
+                _Chip(
+                  option: const ChipOption(emoji: '📄', label: 'דף חדש'),
+                  big: lowEnergy,
+                  onTap: onNewPage!,
+                ),
             ],
           ),
           // The free-text row is hidden in low-energy mode — unless there are

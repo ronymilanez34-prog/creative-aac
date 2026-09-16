@@ -6,11 +6,13 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/story.dart';
+import '../services/companion_factory.dart';
 import '../services/interaction_log.dart';
 import '../services/speech.dart';
 import '../services/story_store.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
+import 'companion_screen.dart';
 
 /// Reads a finished [Story] one page at a time, with big picture + text and a
 /// read-aloud button. The user controls the pace with clear next/back arrows.
@@ -75,6 +77,23 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
     setState(() => _saved = true);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('הסיפור נשמר 📚')),
+    );
+  }
+
+  /// "Continue from yesterday" (USER_LENS 2.4): reopen THIS story inside
+  /// the creation loop — pieces, pictures and rolling summary seeded back
+  /// in, saving updates the same story. Replaces this screen so coming
+  /// back lands on the refreshed list, not a stale reading view.
+  Future<void> _continueCreating() async {
+    final service = await buildCompanionService();
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => CompanionScreen(
+          service: service,
+          resumeStory: widget.story,
+        ),
+      ),
     );
   }
 
@@ -255,6 +274,14 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: Column(
                 children: [
+                  // Back into the creation loop — for a slow-paced creator,
+                  // a creation that spans many days is the whole point.
+                  BigButton(
+                    label: 'להמשיך ליצור',
+                    emoji: '🎨',
+                    onTap: _continueCreating,
+                  ),
+                  const SizedBox(height: 12),
                   // The pride loop leaves the device from here: one big
                   // obvious door out for the finished creation.
                   BigButton(

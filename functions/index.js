@@ -15,10 +15,13 @@
  *                          closed pilot; revisit auth before any open release.
  *
  * Request data:
- *   { profile, creationSoFar, history, userInput, inputSource, lowEnergy,
- *     paceHint }
+ *   { profile, creationSoFar, creationSummary, history, userInput,
+ *     inputSource, lowEnergy, paceHint }
  *  • history: recent conversation as [{role: "user"|"assistant", text}] —
  *    the model is stateless, so this is its only memory of the dialogue.
+ *  • creationSummary: rolling summary of a long creation — when present,
+ *    creationSoFar carries only the newest pieces and the summary carries
+ *    the rest (the app decides when to switch; see creation_context.dart).
  *  • inputSource: "user" (default) | "partner" — a partner's modelling tap is
  *    marked so the model never treats it as the user's own choice.
  *  • lowEnergy: true → the prompt switches to the low-energy variant
@@ -66,6 +69,7 @@ const TURN_SCHEMA = {
     "say_symbols",
     "creation_update",
     "scene_update",
+    "creation_summary",
     "needs_confirmation",
     "confirm",
     "options",
@@ -89,6 +93,7 @@ const TURN_SCHEMA = {
     },
     creation_update: { type: ["string", "null"] },
     scene_update: { type: ["string", "null"] },
+    creation_summary: { type: ["string", "null"] },
     needs_confirmation: { type: "boolean" },
     confirm: {
       anyOf: [
@@ -149,8 +154,16 @@ function sanitizeHistory(history) {
 
 /** Core: one companion turn. Throws HttpsError on failure. */
 async function runCompanionTurn(data) {
-  const { profile, creationSoFar, history, userInput, inputSource, lowEnergy, paceHint } =
-    data || {};
+  const {
+    profile,
+    creationSoFar,
+    creationSummary,
+    history,
+    userInput,
+    inputSource,
+    lowEnergy,
+    paceHint,
+  } = data || {};
   if (!userInput || !String(userInput).trim()) {
     throw new HttpsError("invalid-argument", "חסר קלט מהמשתמש (userInput).");
   }
@@ -158,6 +171,7 @@ async function runCompanionTurn(data) {
   const system = buildSystemPrompt({
     profile,
     creationSoFar,
+    creationSummary: typeof creationSummary === "string" ? creationSummary : undefined,
     lowEnergy: lowEnergy === true,
     paceHint: typeof paceHint === "string" ? paceHint : undefined,
   });
