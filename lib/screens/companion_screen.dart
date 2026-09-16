@@ -88,8 +88,18 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// silently.
   int _savedPieces = 0;
 
+  /// A picture painted since the last save — a picture-only creation is a
+  /// creation too, and must not vanish on exit.
+  bool _sceneDirty = false;
+
   bool get _hasUnsaved =>
-      _creation.isNotEmpty && _savedPieces != _creation.length;
+      (_creation.isNotEmpty && _savedPieces != _creation.length) ||
+      _sceneDirty;
+
+  /// The current page counts as started once it has words OR a picture.
+  bool get _currentPageHasContent =>
+      _piecePages.contains(_currentPage) ||
+      _sceneSnapshots.containsKey(_currentPage);
 
   /// The scene as painted so far, when the creation is visual
   /// (scene_update in the turn contract) — the creation SEEN growing.
@@ -149,14 +159,18 @@ class _CompanionScreenState extends State<CompanionScreen> {
       for (var i = 0; i < resume.pages.length; i++) {
         final p = resume.pages[i];
         // Each saved page comes back as one piece on its own page — the
-        // page structure (a few sentences + one picture) survives the trip.
-        _creation.add(CreationPiece(
-          text: p.text,
-          userInput: '',
-          source: InputSource.user,
-          questions: p.questions,
-        ));
-        _piecePages.add(i);
+        // page structure (a few sentences + one picture) survives the
+        // trip. A picture-only page seeds its picture without an empty
+        // text piece.
+        if (p.text.trim().isNotEmpty) {
+          _creation.add(CreationPiece(
+            text: p.text,
+            userInput: '',
+            source: InputSource.user,
+            questions: p.questions,
+          ));
+          _piecePages.add(i);
+        }
         final b64 = p.imageB64;
         if (b64 != null && b64.isNotEmpty) {
           try {
@@ -435,6 +449,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
         _painting = false;
         _sceneImage = bytes;
         _sceneSnapshots[forPage] = bytes;
+        _sceneDirty = true;
       });
     } catch (_) {
       if (!mounted) return;
@@ -445,7 +460,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// "דף חדש": closes the current page — the next sentences and the next
   /// picture belong to a fresh page (same characters, new scene).
   void _newPage() {
-    if (!_piecePages.contains(_currentPage)) return; // page still empty
+    if (!_currentPageHasContent) return; // page still empty
     setState(() {
       _currentPage++;
       // A user bubble, so the model hears about it in the history and
@@ -510,6 +525,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
           _painting = false;
           _sceneImage = bytes;
           _sceneSnapshots[_currentPage] = bytes;
+          _sceneDirty = true;
         });
       } catch (_) {
         if (!mounted) return;
@@ -521,10 +537,12 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// Saves the creation so far into "my stories" — creations must never
   /// simply vanish; a finished piece is something to revisit and show.
   Future<void> _saveCreation() async {
-    if (_creation.isEmpty) return;
+    // Words OR pictures — a picture-only creation saves too.
+    if (_creation.isEmpty && _sceneSnapshots.isEmpty) return;
     final now = DateTime.now();
-    final firstWords =
-        _creation.first.text.split(RegExp(r'\s+')).take(4).join(' ');
+    final firstWords = _creation.isEmpty
+        ? 'התמונה שלי'
+        : _creation.first.text.split(RegExp(r'\s+')).take(4).join(' ');
     // One StoryPage per PAGE: its few sentences joined, its questions, and
     // ITS picture (shrunk) — reading back turns the pages and watches the
     // pictures change, exactly as they were made.
@@ -537,8 +555,10 @@ class _CompanionScreenState extends State<CompanionScreen> {
         texts.add(_creation[i].text);
         questions.addAll(_creation[i].questions);
       }
-      if (texts.isEmpty) continue; // an opened-but-empty page saves nothing
       final snapshot = _sceneSnapshots[page];
+      // A page earns its place with words OR a picture; only a page with
+      // neither saves nothing.
+      if (texts.isEmpty && snapshot == null) continue;
       pages.add(StoryPage(
         text: texts.join(' '),
         emoji: '✨',
@@ -557,7 +577,10 @@ class _CompanionScreenState extends State<CompanionScreen> {
     );
     await StoryStore().save(story);
     if (!mounted) return;
-    setState(() => _savedPieces = _creation.length);
+    setState(() {
+      _savedPieces = _creation.length;
+      _sceneDirty = false;
+    });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('נשמר ב"הסיפורים שלי" 📚')),
     );
@@ -690,7 +713,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
           IconButton(
             tooltip: 'שמירת היצירה',
             icon: const Icon(Icons.bookmark_add_outlined),
-            onPressed: _creation.isEmpty ? null : _saveCreation,
+            onPressed: _creation.isEmpty && _sceneSnapshots.isEmpty
+                ? null
+                : _saveCreation,
           ),
           IconButton(
             tooltip: _lowEnergy ? 'חזרה למצב מלא' : 'מצב אנרגיה נמוכה',
@@ -780,9 +805,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
                 lowEnergy: _lowEnergy,
                 partnerMode: _partnerMode,
                 partnerArmed: _partnerArmed,
-                // "דף חדש" appears once the current page has content.
-                onNewPage:
-                    _piecePages.contains(_currentPage) ? _newPage : null,
+                // "דף חדש" appears once the current page has words OR a
+                // picture (a picture-only page is a page).
+                onNewPage: _currentPageHasContent ? _newPage : null,
                 onPartnerArmed: (v) => setState(() => _partnerArmed = v),
                 onChip: (label, index) => _send(label,
                     kind: 'chip',
@@ -838,7 +863,7 @@ class _CreationCard extends StatelessWidget {
       margin: const EdgeInsets.all(12),
       padding: const EdgeInsets.all(16),
       constraints:
-          BoxConstraints(minHeight: 72, maxHeight: hasImage ? 290 : 150),
+          BoxConstraints(minHeight: 72, maxHeight: hasImage ? 400 : 150),
       width: double.infinity,
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -862,13 +887,16 @@ class _CreationCard extends StatelessWidget {
           if (hasImage) ...[
             Stack(
               children: [
+                // The WHOLE picture, never a cropped strip — the scene is
+                // the creation (field feedback 16.9: "the picture gets
+                // cut"). Contain keeps every character in frame.
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: Image.memory(
                     image!,
-                    height: 128,
+                    height: 240,
                     width: double.infinity,
-                    fit: BoxFit.cover,
+                    fit: BoxFit.contain,
                     gaplessPlayback: true,
                   ),
                 ),
