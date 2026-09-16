@@ -214,6 +214,17 @@ class _CompanionScreenState extends State<CompanionScreen> {
     BoardStore().load().then((words) {
       if (mounted && words.isNotEmpty) setState(() => _boardWords = words);
     });
+    // Silence must never be a mystery (USER_LENS 2.5): when the device
+    // has no Hebrew voice at all, say so once, visibly.
+    _speech.hasHebrewVoice().then((has) {
+      if (has == false && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          duration: Duration(seconds: 6),
+          content: Text('🔇 נראה שאין קול עברי במכשיר הזה — '
+              'הטקסט יוצג אבל לא יוקרא.'),
+        ));
+      }
+    });
     // Speak the opening after the first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) => _speak(_turn.say));
   }
@@ -709,7 +720,13 @@ class _CompanionScreenState extends State<CompanionScreen> {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _confirmExit();
       },
-      child: Scaffold(
+      // iOS allows speech only after it started once inside a real touch —
+      // the very first tap on this screen unlocks the voice for the rest
+      // of the session (Speech.warmUp self-guards to once).
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) => unawaited(_speech.warmUp()),
+        child: Scaffold(
       appBar: AppBar(
         title: const Text('בואו ניצור ביחד'),
         leading: IconButton(
@@ -841,6 +858,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
               ),
           ],
         ),
+      ),
       ),
       ),
     );

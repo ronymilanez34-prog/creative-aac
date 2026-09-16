@@ -138,7 +138,11 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
     final pages = widget.story.pages;
     final isLast = _page == pages.length - 1;
     final isFirst = _page == 0;
-    return Scaffold(
+    // First touch unlocks iOS speech for the whole reading session.
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => unawaited(_speech.warmUp()),
+      child: Scaffold(
       appBar: AppBar(
         title: Text(widget.story.title),
         actions: [
@@ -318,6 +322,7 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }
