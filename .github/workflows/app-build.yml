@@ -73,6 +73,32 @@ jobs:
           --dart-define=COMPANION_APP_KEY=${{ secrets.COMPANION_APP_KEY }}
           --dart-define=BUILD_STAMP=${{ github.run_number }}
 
+      # Flutter's service worker keeps serving the previous build until the
+      # tab is fully closed and reopened — pilot testers were stuck on old
+      # versions. When the NEW worker takes control shortly after page load,
+      # reload once automatically; a takeover later (mid-session, possibly
+      # mid-creation) changes nothing until the next visit.
+      - name: Auto-refresh when a new version arrives
+        run: |
+          python3 - <<'EOF'
+          from pathlib import Path
+          p = Path('build/web/index.html')
+          s = p.read_text()
+          snippet = (
+            '<script>\n'
+            'if ("serviceWorker" in navigator) {\n'
+            '  var t0 = Date.now(); var reloaded = false;\n'
+            '  navigator.serviceWorker.addEventListener("controllerchange", function () {\n'
+            '    if (!reloaded && Date.now() - t0 < 15000) { reloaded = true; location.reload(); }\n'
+            '  });\n'
+            '}\n'
+            '</script>\n</body>'
+          )
+          assert '</body>' in s
+          p.write_text(s.replace('</body>', snippet))
+          print('auto-refresh snippet injected')
+          EOF
+
       - name: Upload web build for Pages
         uses: actions/upload-pages-artifact@v3
         with:
