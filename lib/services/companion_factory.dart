@@ -8,9 +8,7 @@ import 'profile_store.dart';
 /// creation loop (home, and "continue this creation" from a saved story):
 /// the personal profile and the vocabulary imported from the user's own AAC
 /// board are baked into the prompt — familiar words are the wide-walls
-/// material the AI should offer chips from — and the user's favourite
-/// topics become opening chips, so the very first choice can already be
-/// THEIR world, not only a creation type.
+/// material the AI offers topics from once a creation type is chosen.
 Future<CompanionService> buildCompanionService() async {
   final profile = await ProfileStore().load();
   final boardWords = await BoardStore().load();
@@ -30,23 +28,11 @@ Future<CompanionService> buildCompanionService() async {
             '$familiar.'
         .trim();
   }
-  // Personal topics for the opening chips: loved things first, then the
-  // first imported board words — deduped, a handful at most.
-  final topics = <String>[];
-  for (final t in [
-    ...profile.loves,
-    ...boardWords.map((w) => w.label),
-  ]) {
-    final label = t.trim();
-    if (label.isNotEmpty && !topics.contains(label)) topics.add(label);
-    if (topics.length >= 3) break;
-  }
   return kCompanionEndpoint.isEmpty
       ? MockCompanionService()
       : ClaudeCompanionService(
           endpoint: kCompanionEndpoint,
           appKey: kCompanionAppKey,
           profileText: promptText.isNotEmpty ? promptText : kDefaultProfile,
-          openingTopics: topics,
         );
 }

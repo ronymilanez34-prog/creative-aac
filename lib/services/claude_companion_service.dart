@@ -13,7 +13,6 @@ class ClaudeCompanionService implements CompanionService {
     required this.endpoint,
     this.appKey = '',
     this.profileText = '',
-    this.openingTopics = const [],
     http.Client? client,
   }) : _client = client ?? http.Client();
 
@@ -26,26 +25,25 @@ class ClaudeCompanionService implements CompanionService {
   /// The personal profile block injected into the prompt ({{PROFILE}}).
   final String profileText;
 
-  /// The user's own favourite topics (profile loves, imported board words)
-  /// — offered as opening chips next to the creation types, so the first
-  /// tap can already be their world.
-  final List<String> openingTopics;
-
   final http.Client _client;
 
+  // The opening chooses WHAT to create — types only. WHO/what it's about
+  // comes next, from the model, chiefly out of the user's own world
+  // (field feedback 16.9: a bare "אמא" chip at the opening reads as
+  // something to create; first the what, then the about).
   @override
-  CompanionTurn opening() => CompanionTurn(
+  CompanionTurn opening() => const CompanionTurn(
         say: 'היי! מה יוצרים היום?',
-        saySymbols: const [
+        saySymbols: [
           SaySymbol(emoji: '👋', word: 'שלום'),
           SaySymbol(emoji: '🎨', word: 'ליצור'),
           SaySymbol(emoji: '❓', word: 'מה'),
         ],
         options: [
-          const ChipOption(emoji: '📖', label: 'סיפור'),
-          const ChipOption(emoji: '🎵', label: 'שיר'),
-          const ChipOption(emoji: '💡', label: 'רעיון'),
-          for (final t in openingTopics) ChipOption(emoji: '⭐', label: t),
+          ChipOption(emoji: '📖', label: 'סיפור'),
+          ChipOption(emoji: '🎵', label: 'שיר'),
+          ChipOption(emoji: '🖼️', label: 'תמונה'),
+          ChipOption(emoji: '💡', label: 'רעיון'),
         ],
       );
 
