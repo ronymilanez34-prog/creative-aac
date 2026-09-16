@@ -33,8 +33,18 @@ class _MyStoriesScreenState extends State<MyStoriesScreen> {
   final Map<String, Uint8List> _thumbCache = {};
 
   Uint8List? _thumb(Story s) {
-    final b64 = s.pages.isNotEmpty ? s.pages.first.imageB64 : null;
-    if (b64 == null || b64.isEmpty) return null;
+    // The first page that has a picture — with per-page scene snapshots
+    // the opening page may be text-only while a later one carries the art.
+    String? found;
+    for (final p in s.pages) {
+      final img = p.imageB64;
+      if (img != null && img.isNotEmpty) {
+        found = img;
+        break;
+      }
+    }
+    if (found == null) return null;
+    final b64 = found;
     final bytes = _thumbCache.putIfAbsent(s.id, () {
       try {
         return base64Decode(b64);

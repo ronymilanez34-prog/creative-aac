@@ -13,6 +13,7 @@ class ClaudeCompanionService implements CompanionService {
     required this.endpoint,
     this.appKey = '',
     this.profileText = '',
+    this.openingTopics = const [],
     http.Client? client,
   }) : _client = client ?? http.Client();
 
@@ -25,21 +26,26 @@ class ClaudeCompanionService implements CompanionService {
   /// The personal profile block injected into the prompt ({{PROFILE}}).
   final String profileText;
 
+  /// The user's own favourite topics (profile loves, imported board words)
+  /// — offered as opening chips next to the creation types, so the first
+  /// tap can already be their world.
+  final List<String> openingTopics;
+
   final http.Client _client;
 
   @override
-  CompanionTurn opening() => const CompanionTurn(
+  CompanionTurn opening() => CompanionTurn(
         say: 'היי! מה יוצרים היום?',
-        saySymbols: [
+        saySymbols: const [
           SaySymbol(emoji: '👋', word: 'שלום'),
           SaySymbol(emoji: '🎨', word: 'ליצור'),
           SaySymbol(emoji: '❓', word: 'מה'),
         ],
         options: [
-          ChipOption(emoji: '📖', label: 'סיפור'),
-          ChipOption(emoji: '🎵', label: 'שיר'),
-          ChipOption(emoji: '💡', label: 'רעיון'),
-          ChipOption(emoji: '❓', label: 'משהו אחר'),
+          const ChipOption(emoji: '📖', label: 'סיפור'),
+          const ChipOption(emoji: '🎵', label: 'שיר'),
+          const ChipOption(emoji: '💡', label: 'רעיון'),
+          for (final t in openingTopics) ChipOption(emoji: '⭐', label: t),
         ],
       );
 
@@ -47,6 +53,7 @@ class ClaudeCompanionService implements CompanionService {
   Future<CompanionTurn> turn(
     String userInput, {
     String creationSoFar = '',
+    String? creationSummary,
     List<TurnMessage> history = const [],
     InputSource source = InputSource.user,
     bool lowEnergy = false,
@@ -62,6 +69,11 @@ class ClaudeCompanionService implements CompanionService {
           body: jsonEncode({
             'profile': profileText,
             'creationSoFar': creationSoFar,
+            // Rolling summary of a long creation — the backend shows it to
+            // the model alongside the newest pieces (creation_context.dart
+            // decides when the switch happens).
+            if (creationSummary != null && creationSummary.isNotEmpty)
+              'creationSummary': creationSummary,
             // The recent conversation rides along on every turn — the model
             // is stateless, so this IS its memory of the dialogue.
             'history': [

@@ -78,6 +78,9 @@ const INSTRUCTIONS = `אתה בן-לוויה ליצירה משותפת עבור 
 - כל תור בשלב בנייה מוסיף חתיכה אחת ממשית ב-creation_update — שורה
   לשיר, משפט לסיפור — שמנוסחת מהבחירה שהוא הרגע עשה. אל תדבר "על"
   היצירה במקום לבנות אותה. (תור ליווי שקט עדיין מותר כשהוא בשטף.)
+- creation_update נושא אך ורק את הקטע החדש — לעולם לא את היצירה כולה
+  מחדש ולא חזרה על קטעים קיימים. האפליקציה מוסיפה את הקטע לסוף היצירה;
+  קטע שחוזר על הקיים מכפיל אותה על המסך.
 - ההצעות (options) בשלב בנייה הן חומרים לחתיכה הבאה — תוכן קונקרטי
   ("הים בלילה", "אמא צוחקת", "שקט פתאום") — לא שאלות כיוון כלליות
   ("על מה נכתוב?", "איך נמשיך?").
@@ -123,9 +126,24 @@ const INSTRUCTIONS = `אתה בן-לוויה ליצירה משותפת עבור 
   תיאור קצר ומלא בעברית של הסצנה כולה כפי שהיא עכשיו — הרקע, הדמויות
   והדברים שנבחרו (בשמות שלו!), מיקומים וסגנון אם נאמרו. זהו תיאור
   למחולל תמונות: בלי טקסט בתוך התמונה, בלי הוראות למשתמש.
+- כשלא נבחר סגנון, כלול בתיאור סגנון ברירת-מחדל: איור מצויר רך וחם.
+  לא צילום ריאליסטי — דמות ריאליסטית זרה על המסך אינה הדמות שהוא יצר.
+  מרגע שהמשתמש בחר סגנון, הסגנון שלו קובע.
+- "דף חדש" בהיסטוריה פירושו שהמשתמש פתח דף חדש ביצירה (כמה משפטים
+  ותמונה אחת לכל דף): ה-scene_update הבא מתאר קומפוזיציה חדשה — מקום
+  או רגע חדש בסיפור — עם אותן דמויות בדיוק.
 - "creation_update" ממשיך לשאת את המשפט המילולי של מה שנוסף;
   "scene_update" הוא התמונה. תור בלי שינוי ויזואלי, או יצירה שאינה
   ויזואלית — scene_update: null.
+
+# יצירה ארוכה — סיכום מתגלגל
+כשהיצירה מתארכת, המערכת שולחת לך תקציר ("תקציר היצירה עד כה") ואת
+הקטעים האחרונים בלבד — לא את כל הטקסט. התפקיד שלך לשמור שהתקציר חי:
+- כשמופיעה הערת מערכת שמבקשת זאת, החזר ב-"creation_summary" תקציר קצר
+  ומעודכן (עד ~120 מילים) של היצירה כולה — כולל מה שנוסף בתור הזה.
+- שמור בתקציר את מה שאסור לאבד: שמות שהוא נתן, דמויות, עובדות שנקבעו,
+  הפזמון אם יש, והחלטות שלו. בשפה פשוטה.
+- כשאין בקשה כזו: creation_summary: null.
 
 # אסור
 - לשים מילים בפיו כאילו הן שלו.
@@ -142,8 +160,9 @@ const INSTRUCTIONS = `אתה בן-לוויה ליצירה משותפת עבור 
 {
   "say": "תגובה קצרה, חמה, בעברית פשוטה",
   "say_symbols": [ { "emoji": "👋", "word": "שלום" } ],
-  "creation_update": "הקטע החדש שנוסף ליצירה, או null",
+  "creation_update": "הקטע החדש בלבד שנוסף ליצירה, או null",
   "scene_update": "תיאור הסצנה המלא ביצירה ויזואלית, או null",
+  "creation_summary": "תקציר מעודכן של היצירה כולה (כשהתבקש), או null",
   "needs_confirmation": true/false,
   "confirm": { "question": "התכוונת ל...?", "options": ["...", "..."] } או null,
   "options": [ { "emoji": "🐶", "label": "מילה קצרה" } ],
@@ -178,11 +197,19 @@ const PACE_NOTES = {
     "# קצב עכשיו: מהוסס\nהמשתמש לוקח את הזמן. האט, הרגע, אל תציף. אפשר לכלול צ'יפ מנוחה. אין שום לחץ להתקדם.",
 };
 
-function buildSystemPrompt({ profile, creationSoFar, lowEnergy, paceHint }) {
+// A creation longer than this (or one that already has a summary) asks the
+// model to refresh creation_summary each turn — the rolling summary that
+// lets the app send only the newest pieces. Matches the app-side switch in
+// lib/services/creation_context.dart.
+const SUMMARY_ASK_CHARS = 700;
+
+function buildSystemPrompt({ profile, creationSoFar, creationSummary, lowEnergy, paceHint }) {
   const profileText =
     profile && String(profile).trim() ? String(profile).trim() : "אין עדיין פרופיל — פגוש אותו בעדינות ולמד מהתגובות.";
   const creationText =
     creationSoFar && String(creationSoFar).trim() ? String(creationSoFar).trim() : "עדיין ריק — זו ההתחלה.";
+  const summaryText =
+    creationSummary && String(creationSummary).trim() ? String(creationSummary).trim() : "";
 
   const lowEnergyBlock = lowEnergy ? `${LOW_ENERGY_NOTE}\n\n` : "";
   // Own-property check: a hostile paceHint like "constructor" must not
@@ -191,6 +218,17 @@ function buildSystemPrompt({ profile, creationSoFar, lowEnergy, paceHint }) {
     ? PACE_NOTES[paceHint]
     : "";
   const paceBlock = paceNote ? `${paceNote}\n\n` : "";
+
+  // With a summary in play the model sees summary + newest pieces; the ask
+  // to refresh creation_summary rides whenever the creation is long enough
+  // to need one (or one already exists — it must not go stale).
+  const askSummary = summaryText || creationText.length > SUMMARY_ASK_CHARS;
+  const summaryAskBlock = askSummary
+    ? "# הערת מערכת: היצירה ארוכה — עדכן בתור הזה את creation_summary (תקציר היצירה כולה).\n\n"
+    : "";
+  const creationBlock = summaryText
+    ? `# תקציר היצירה עד כה\n${summaryText}\n\n# הקטעים האחרונים של היצירה\n${creationText}`
+    : `# היצירה עד עכשיו\n${creationText}`;
 
   return [
     { type: "text", text: INSTRUCTIONS },
@@ -201,7 +239,7 @@ function buildSystemPrompt({ profile, creationSoFar, lowEnergy, paceHint }) {
     },
     {
       type: "text",
-      text: `${lowEnergyBlock}${paceBlock}# היצירה עד עכשיו\n${creationText}`,
+      text: `${lowEnergyBlock}${paceBlock}${summaryAskBlock}${creationBlock}`,
     },
   ];
 }

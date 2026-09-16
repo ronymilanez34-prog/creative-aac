@@ -12,6 +12,7 @@ import 'package:creative_aac/models/story.dart';
 import 'package:creative_aac/screens/partner_screen.dart';
 import 'package:creative_aac/services/chip_layout.dart';
 import 'package:creative_aac/services/companion_service.dart';
+import 'package:creative_aac/services/creation_context.dart';
 import 'package:creative_aac/services/image_sink.dart';
 import 'package:creative_aac/services/interaction_log.dart';
 import 'package:creative_aac/services/obz_importer.dart';
@@ -123,6 +124,85 @@ void main() {
     expect(junk.confirm, isNull);
     expect(junk.options, isEmpty);
     expect(junk.questions, ['שאלה']);
+  });
+
+  test('turn carries the rolling creation summary when present', () {
+    final withSummary = CompanionTurn.fromJson(const {
+      'say': 'ממשיכים',
+      'creation_summary': 'אריק נסע באוטובוס לים ופגש את אמא.',
+    });
+    expect(
+        withSummary.creationSummary, 'אריק נסע באוטובוס לים ופגש את אמא.');
+    expect(CompanionTurn.fromJson(const {'say': 'א'}).creationSummary, isNull);
+  });
+
+  test('a long creation travels as summary + newest pieces only', () {
+    // Short creation: full text, no summary needed.
+    final short = creationContext(const ['היה היה אריה.'], null);
+    expect(short.creationSoFar, 'היה היה אריה.');
+    expect(short.creationSummary, isNull);
+
+    // Long creation with a summary: only the newest whole pieces travel.
+    final pieces = [for (var i = 0; i < 80; i++) 'משפט מספר $i ביצירה שלנו.'];
+    expect(pieces.join(' ').length, greaterThan(kFullTextLimit));
+    final long = creationContext(pieces, 'תקציר: הרבה משפטים.');
+    expect(long.creationSummary, 'תקציר: הרבה משפטים.');
+    expect(long.creationSoFar.length, lessThanOrEqualTo(kSummaryTailChars + 40));
+    expect(long.creationSoFar, endsWith('משפט מספר 79 ביצירה שלנו.'));
+    expect(long.creationSoFar, startsWith('משפט מספר'));
+
+    // Long creation but no summary yet: full text still travels (the model
+    // needs to SEE everything once to write the first summary).
+    final noSummary = creationContext(pieces, null);
+    expect(noSummary.creationSoFar, pieces.join(' '));
+  });
+
+  test('a creation_update repeating the creation is stripped to the new bit',
+      () {
+    const pieces = ['אריק יושב באוטובוס.', 'אריק אוכל גלידה.'];
+
+    // The live 16.9 bug: the whole creation came back plus the new piece.
+    expect(
+      extractNewPiece(
+          'אריק יושב באוטובוס. אריק אוכל גלידה. אמא מדברת לאריק.', pieces),
+      'אמא מדברת לאריק.',
+    );
+    // Only the newest piece repeated.
+    expect(
+      extractNewPiece('אריק אוכל גלידה. אמא מדברת לאריק.', pieces),
+      'אמא מדברת לאריק.',
+    );
+    // Nothing new at all.
+    expect(extractNewPiece('אריק יושב באוטובוס. אריק אוכל גלידה.', pieces), '');
+    // A genuinely new piece passes through untouched.
+    expect(extractNewPiece('אמא מדברת לאריק.', pieces), 'אמא מדברת לאריק.');
+    // No existing pieces — everything is new.
+    expect(extractNewPiece('היה היה אריה.', const []), 'היה היה אריה.');
+  });
+
+  test('story round-trips the rolling summary', () {
+    const story = Story(
+      id: '7',
+      title: 'אריק',
+      createdAtMs: 0,
+      summary: 'אריק נסע לים.',
+      pages: [StoryPage(text: 'אריק נסע.', emoji: '✨')],
+    );
+    final restored = Story.fromJson(
+        jsonDecode(jsonEncode(story.toJson())) as Map<String, dynamic>);
+    expect(restored.summary, 'אריק נסע לים.');
+    expect(restored.withoutImages().summary, 'אריק נסע לים.');
+
+    // Older saved stories have no summary — must load cleanly.
+    final legacy = Story.fromJson(const {
+      'id': '1',
+      'title': 'א',
+      'createdAtMs': 0,
+      'pages': [
+        {'text': 'א', 'emoji': '✨'},
+      ],
+    });
+    expect(legacy.summary, isNull);
   });
 
   test('story pages round-trip the real picture and can drop it', () {

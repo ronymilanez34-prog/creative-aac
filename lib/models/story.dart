@@ -74,6 +74,7 @@ class Story {
     required this.title,
     required this.pages,
     required this.createdAtMs,
+    this.summary,
   });
 
   final String id;
@@ -81,10 +82,16 @@ class Story {
   final List<StoryPage> pages;
   final int createdAtMs;
 
+  /// Rolling summary of a long creation (see CompanionTurn.creationSummary),
+  /// saved with the story so "continue this creation" reopens tomorrow with
+  /// the whole of it rememberable, not only the newest pieces.
+  final String? summary;
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,
         'createdAtMs': createdAtMs,
+        if (summary != null && summary!.isNotEmpty) 'summary': summary,
         'pages': pages.map((p) => p.toJson()).toList(),
       };
 
@@ -92,6 +99,7 @@ class Story {
         id: j['id'] as String,
         title: j['title'] as String,
         createdAtMs: j['createdAtMs'] as int,
+        summary: j['summary'] as String?,
         pages: (j['pages'] as List)
             .map((e) => StoryPage.fromJson(e as Map<String, dynamic>))
             .toList(),
@@ -103,6 +111,7 @@ class Story {
         id: id,
         title: title,
         createdAtMs: createdAtMs,
+        summary: summary,
         pages: pages.map((p) => p.withoutImage()).toList(),
       );
 }

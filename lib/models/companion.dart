@@ -59,6 +59,7 @@ class CompanionTurn {
     this.partnerTip,
     this.questions = const [],
     this.safeguard = false,
+    this.creationSummary,
   });
 
   /// Short warm response — spoken aloud (and the fallback when no symbols).
@@ -96,6 +97,12 @@ class CompanionTurn {
   /// continue as usual.
   final bool safeguard;
 
+  /// Rolling summary of the WHOLE creation, refreshed by the model once the
+  /// creation grows long — what keeps a long creation rememberable (and
+  /// affordable) when only its newest pieces travel with each turn. Null
+  /// while the creation is short or on turns that didn't refresh it.
+  final String? creationSummary;
+
   factory CompanionTurn.fromJson(Map<String, dynamic> j) => CompanionTurn(
         say: (j['say'] ?? '').toString(),
         saySymbols: (j['say_symbols'] as List? ?? const [])
@@ -119,6 +126,7 @@ class CompanionTurn {
             .where((s) => s.trim().isNotEmpty)
             .toList(),
         safeguard: j['safeguard'] == true,
+        creationSummary: j['creation_summary']?.toString(),
       );
 }
 
