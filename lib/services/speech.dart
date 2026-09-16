@@ -6,6 +6,27 @@ class Speech {
   FlutterTts? _tts;
   bool _ready = false;
 
+  /// TTS-safe text. Two field-found traps (16.9, "צ'יקו" came out as random
+  /// letters):
+  ///  • an ASCII apostrophe inside a Hebrew word reads as an abbreviation
+  ///    mark — engines split the word and spell it out. A real Hebrew
+  ///    geresh (U+05F3) keeps צ'יקו one spoken word.
+  ///  • emoji and pictographs get read out ("smiling face…") or garbled —
+  ///    they are for the eyes, so they are stripped before speaking.
+  static String speakable(String text) {
+    var t = text.replaceAllMapped(
+      RegExp("(?<=[א-ת])['’`](?=[א-ת])"),
+      (_) => '׳',
+    );
+    // Whitelist: Hebrew (incl. geresh/gershayim), Latin, digits, basic
+    // punctuation. Everything else — emoji, symbols — becomes a space.
+    t = t.replaceAll(
+      RegExp("[^֐-״A-Za-z0-9 .,!?:;()\"'’\\-]"),
+      ' ',
+    );
+    return t.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
   Future<void> _ensureInit() async {
     if (_ready) return;
     final tts = FlutterTts();
@@ -18,7 +39,7 @@ class Speech {
   }
 
   Future<void> speak(String text) async {
-    final trimmed = text.trim();
+    final trimmed = speakable(text);
     if (trimmed.isEmpty) return;
     await _ensureInit();
     await _tts?.stop();
