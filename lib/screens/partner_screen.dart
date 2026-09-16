@@ -1,7 +1,11 @@
+import 'dart:convert';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/profile.dart';
+import '../services/backup.dart' as backup;
 import '../services/interaction_log.dart';
 import '../services/profile_store.dart';
 import '../theme.dart';
@@ -172,6 +176,94 @@ class _PartnerScreenState extends State<PartnerScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('הלוג הועתק — אפשר להדביק לקובץ/מייל 📋')),
     );
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /// Everything on the device into one file: profile, stories with their
+  /// pictures, imported board, log. The whole world in browser storage is
+  /// one cleared history away from gone — this is the door out.
+  Future<void> _backupToFile() async {
+    try {
+      final json = await backup.exportAll();
+      final bytes = Uint8List.fromList(utf8.encode(json));
+      final now = DateTime.now();
+      String two(int n) => n.toString().padLeft(2, '0');
+      final name =
+          'creative-aac-backup-${now.year}-${two(now.month)}-${two(now.day)}.json';
+      final saved = await FilePicker.platform.saveFile(
+        fileName: name,
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+        bytes: bytes,
+      );
+      // On some platforms cancelling returns null; the web download path
+      // may too — phrase the toast so neither case lies.
+      _toast(saved == null
+          ? 'אם נפתח חלון שמירה ובוטל — לא נשמר; אחרת חפשו את הקובץ בהורדות 💾'
+          : 'הגיבוי נשמר 💾');
+    } catch (e) {
+      _toast('הגיבוי נכשל: $e');
+    }
+  }
+
+  /// Restore replaces EVERYTHING on the device with the chosen file — the
+  /// file is validated before anything is touched, and the person confirms
+  /// with the date the backup was made.
+  Future<void> _restoreFromFile() async {
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+        withData: true,
+      );
+      final data = picked?.files.single.bytes;
+      if (data == null) return;
+      final raw = utf8.decode(data);
+      // Validate first — a bad file must never wipe a device.
+      backup.decodeSnapshot(raw);
+      if (!mounted) return;
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('לשחזר מהגיבוי?'),
+            content: const Text(
+              'השחזור יחליף את כל מה שנמצא עכשיו במכשיר — הפרופיל, '
+              'הסיפורים, לוח המילים והלוג — במה שבקובץ.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('ביטול'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('לשחזר'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (ok != true) return;
+      final count = await backup.restoreAll(raw);
+      _toast('שוחזר ($count פריטים) ✅');
+      if (!mounted) return;
+      // The screen shows restored data from here on.
+      setState(() => _loaded = false);
+      _desireFuture = _log.freeTextCounts();
+      _usageFuture = _log.usageStats();
+      _chipFuture = _log.chipChoiceCounts();
+      await _load();
+    } on FormatException catch (e) {
+      _toast('הקובץ לא שוחזר — ${e.message}');
+    } catch (e) {
+      _toast('השחזור נכשל: $e');
+    }
   }
 
   @override
@@ -413,6 +505,28 @@ class _PartnerScreenState extends State<PartnerScreen> {
                     'הנתונים נשארים על המכשיר ומשמשים ללמידה בלבד — לעולם לא '
                     'להערכה של המשתמש או כתגובה ללחיצות חירום.',
                     style: TextStyle(color: AppColors.textSoft, fontSize: 13),
+                  ),
+                  const SizedBox(height: 20),
+                  const _SectionTitle('גיבוי ושחזור'),
+                  const Text(
+                    'כל העולם של המשתמש — הפרופיל, הסיפורים והתמונות, לוח '
+                    'המילים והלוג — נשמר בדפדפן הזה בלבד. ניקוי היסטוריה או '
+                    'החלפת מכשיר מוחקים הכול. גבו לקובץ אחרי כל עבודה '
+                    'משמעותית.',
+                    style: TextStyle(color: AppColors.textSoft, fontSize: 13),
+                  ),
+                  const SizedBox(height: 10),
+                  BigButton(
+                    label: 'גיבוי הכול לקובץ',
+                    emoji: '💾',
+                    onTap: _backupToFile,
+                  ),
+                  const SizedBox(height: 8),
+                  BigButton(
+                    label: 'שחזור מקובץ גיבוי',
+                    emoji: '📂',
+                    color: AppColors.accent,
+                    onTap: _restoreFromFile,
                   ),
                 ],
               ),

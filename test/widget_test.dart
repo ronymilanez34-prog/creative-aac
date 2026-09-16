@@ -10,6 +10,7 @@ import 'package:creative_aac/models/companion.dart';
 import 'package:creative_aac/models/profile.dart';
 import 'package:creative_aac/models/story.dart';
 import 'package:creative_aac/screens/partner_screen.dart';
+import 'package:creative_aac/services/backup.dart' as backup;
 import 'package:creative_aac/services/chip_layout.dart';
 import 'package:creative_aac/services/companion_service.dart';
 import 'package:creative_aac/services/creation_context.dart';
@@ -357,6 +358,45 @@ void main() {
     // And any further input after the ending never re-appends the closing.
     final after = await mock.turn('עוד', creationSoFar: 'היה היה כלב. הסוף.');
     expect(after.creationUpdate, isNull);
+  });
+
+  test('backup snapshot round-trips every stored type and rejects junk', () {
+    final values = <String, Object>{
+      'user_profile_v1': '{"name":"דני"}',
+      'creative_aac.stories.v1': '[{"id":"1"}]',
+      'interaction_log_v1': ['a', 'b'],
+      'some_flag': true,
+      'some_count': 7,
+      'some_ratio': 0.5,
+    };
+    final restored = backup.decodeSnapshot(
+        backup.encodeSnapshot(values, exportedAtMs: 123));
+    expect(restored, values);
+    expect(restored['interaction_log_v1'], isA<List<String>>());
+
+    // A bad file must throw BEFORE anything destructive happens.
+    expect(() => backup.decodeSnapshot('not json'),
+        throwsA(isA<FormatException>()));
+    expect(() => backup.decodeSnapshot('{"format":"other","entries":{}}'),
+        throwsA(isA<FormatException>()));
+  });
+
+  test('full backup restores the world onto an empty device', () async {
+    SharedPreferences.setMockInitialValues({
+      'user_profile_v1': 'פרופיל',
+      'creative_aac.stories.v1': 'סיפורים',
+      'interaction_log_v1': ['אירוע'],
+    });
+    final file = await backup.exportAll();
+
+    SharedPreferences.setMockInitialValues({'leftover': 'ישן'});
+    final count = await backup.restoreAll(file);
+    expect(count, 3);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('user_profile_v1'), 'פרופיל');
+    expect(prefs.getStringList('interaction_log_v1'), ['אירוע']);
+    // Restore REPLACES: what wasn't in the backup is gone.
+    expect(prefs.getString('leftover'), isNull);
   });
 
   test('spoken text keeps צ\'יקו one word and drops emoji', () {
