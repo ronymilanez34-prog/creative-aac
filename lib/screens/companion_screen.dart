@@ -375,7 +375,13 @@ class _CompanionScreenState extends State<CompanionScreen> {
 
   /// The single turn pipeline: call the service, append the creation piece
   /// (with provenance and re-reading questions), apply the new turn.
-  Future<void> _performTurn(String input, InputSource source) async {
+  ///
+  /// [allowCreationUpdate] is false for turns that carry no content choice
+  /// of the user's (a page turn): whatever the model tried to add to the
+  /// creation is dropped — words enter the creation only from HIS choices
+  /// (authorship; field feedback 17.9: "it added text I didn't write").
+  Future<void> _performTurn(String input, InputSource source,
+      {bool allowCreationUpdate = true}) async {
     setState(() {
       _busy = true;
       _failed = false;
@@ -404,7 +410,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
       final refreshed = next.creationSummary?.trim() ?? '';
       if (refreshed.isNotEmpty) _creationSummary = refreshed;
 
-      if (next.creationUpdate != null &&
+      if (allowCreationUpdate &&
+          next.creationUpdate != null &&
           next.creationUpdate!.trim().isNotEmpty) {
         // Guard against the whole creation coming back as the "update"
         // (seen live 16.9 — every piece doubled on screen).
@@ -499,7 +506,10 @@ class _CompanionScreenState extends State<CompanionScreen> {
       lowEnergy: _lowEnergy,
       latencyMs: 0,
     ));
-    await _performTurn('דף חדש', InputSource.user);
+    // A page turn is not a content choice — the model offers directions
+    // for the next page, it never writes it by itself.
+    await _performTurn('דף חדש', InputSource.user,
+        allowCreationUpdate: false);
     if (mounted && _failed) _speak('רגע, משהו השתבש. אפשר לנסות שוב.');
   }
 
