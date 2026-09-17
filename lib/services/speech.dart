@@ -103,6 +103,48 @@ class Speech {
     await _tts?.speak(trimmed);
   }
 
+  /// On-screen diagnosis for remote debugging ("the voice doesn't work on
+  /// the phone" must never be a guessing game): initializes, lists what
+  /// the engine reports, and fires a REAL spoken sentence from inside the
+  /// button's own gesture — the strongest test iOS allows. The returned
+  /// text is shown to the person; a screenshot of it tells us everything.
+  Future<String> diagnose() async {
+    final b = StringBuffer();
+    try {
+      await _ensureInit();
+      b.writeln('אתחול המנוע: תקין');
+    } catch (e) {
+      b.writeln('אתחול המנוע נכשל: $e');
+      return b.toString();
+    }
+    try {
+      final voices = await _tts?.getVoices;
+      if (voices is List && voices.isNotEmpty) {
+        b.writeln('קולות במכשיר: ${voices.length}');
+        final he = [
+          for (final v in voices)
+            if (RegExp(r'he[-_]|iw[-_]|hebrew', caseSensitive: false)
+                .hasMatch(v.toString()))
+              v,
+        ];
+        b.writeln('קולות עברית: ${he.length}');
+        if (he.isNotEmpty) b.writeln('למשל: ${he.first}');
+      } else {
+        b.writeln('המנוע לא מדווח רשימת קולות (נפוץ בדפדפן)');
+      }
+    } catch (e) {
+      b.writeln('קריאת קולות נכשלה: $e');
+    }
+    try {
+      final r = await _tts?.speak('שלום! זו בדיקת קול.');
+      b.writeln('פקודת דיבור נשלחה (החזירה: $r)');
+      b.writeln('אם לא נשמע כלום עכשיו — בדקו מתג השתקה ווליום.');
+    } catch (e) {
+      b.writeln('פקודת הדיבור נכשלה: $e');
+    }
+    return b.toString();
+  }
+
   Future<void> stop() async => _tts?.stop();
 
   void dispose() {

@@ -8,6 +8,7 @@ import '../models/profile.dart';
 import '../services/backup.dart' as backup;
 import '../services/interaction_log.dart';
 import '../services/profile_store.dart';
+import '../services/speech.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
 
@@ -181,6 +182,32 @@ class _PartnerScreenState extends State<PartnerScreen> {
   void _toast(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /// "The voice doesn't work" must never be a guessing game: speaks a real
+  /// test sentence from inside this tap and shows what the engine reports
+  /// — a screenshot of the dialog is a complete remote bug report.
+  Future<void> _voiceCheck() async {
+    final speech = Speech();
+    final report = await speech.diagnose();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('בדיקת קול 🔊'),
+          content: Text(report, style: const TextStyle(fontSize: 15)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('סגירה'),
+            ),
+          ],
+        ),
+      ),
+    );
+    speech.dispose();
   }
 
   /// Everything on the device into one file: profile, stories with their
@@ -504,6 +531,20 @@ class _PartnerScreenState extends State<PartnerScreen> {
                   const Text(
                     'הנתונים נשארים על המכשיר ומשמשים ללמידה בלבד — לעולם לא '
                     'להערכה של המשתמש או כתגובה ללחיצות חירום.',
+                    style: TextStyle(color: AppColors.textSoft, fontSize: 13),
+                  ),
+                  const SizedBox(height: 20),
+                  const _SectionTitle('קול'),
+                  BigButton(
+                    label: 'בדיקת קול',
+                    emoji: '🔊',
+                    color: AppColors.accent,
+                    onTap: _voiceCheck,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'לוחצים — אמור להישמע משפט. הדו"ח שמופיע מסביר מה המנוע '
+                    'מדווח; צילום מסך שלו הוא דיווח תקלה מלא.',
                     style: TextStyle(color: AppColors.textSoft, fontSize: 13),
                   ),
                   const SizedBox(height: 20),
