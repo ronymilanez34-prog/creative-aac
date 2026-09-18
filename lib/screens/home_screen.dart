@@ -7,6 +7,7 @@ import '../widgets/big_button.dart';
 import 'build/build_picture_screen.dart';
 import 'build/build_story_screen.dart';
 import 'companion_screen.dart';
+import 'my_language_screen.dart';
 import 'my_stories_screen.dart';
 import 'my_words_screen.dart';
 import 'partner_screen.dart';
@@ -107,6 +108,17 @@ class HomeScreen extends StatelessWidget {
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => const MyWordsScreen(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  BigButton(
+                    label: 'השפה שלנו',
+                    emoji: '🌱',
+                    color: AppColors.accent,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const MyLanguageScreen(),
                       ),
                     ),
                   ),

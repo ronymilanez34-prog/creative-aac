@@ -6,9 +6,11 @@ import 'package:flutter/material.dart';
 
 import '../models/board.dart';
 import '../models/companion.dart';
+import '../models/lexicon.dart';
 import '../models/story.dart';
 import '../services/board_store.dart';
 import '../services/chip_layout.dart';
+import '../services/lexicon_store.dart';
 import '../services/companion_service.dart';
 import '../services/creation_context.dart';
 import '../services/creation_image.dart';
@@ -144,6 +146,15 @@ class _CompanionScreenState extends State<CompanionScreen> {
   QuickFire? _activeQuickFire;
   Timer? _quickFireTimer;
 
+  /// The shared invented language — loaded for the adoption card (its name)
+  /// and updated live when a word is adopted mid-session.
+  Lexicon _lexicon = const Lexicon();
+
+  /// A word the companion offered this turn, waiting for the creator's
+  /// yes/no. Shown BESIDE the regular options, never instead of them —
+  /// declining must not block the conversation.
+  WordOffer? _pendingOffer;
+
   /// The user's own imported vocabulary — lets them compose free text by
   /// tapping familiar board words instead of typing ("writing yourself"
   /// must not assume a keyboard).
@@ -214,6 +225,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
     BoardStore().load().then((words) {
       if (mounted && words.isNotEmpty) setState(() => _boardWords = words);
     });
+    LexiconStore().load().then((lex) {
+      if (mounted) setState(() => _lexicon = lex);
+    });
     // Silence must never be a mystery (USER_LENS 2.5): when the device
     // has no Hebrew voice at all, say so once, visibly.
     _speech.hasHebrewVoice().then((has) {
@@ -281,6 +295,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
       _thread.add(_ThreadItem.companion(turn.say, turn.saySymbols));
       _displayOptions = _chipSlots.arrange(_withoutStandingDoor(turn.options));
       _optionsShownAt = DateTime.now();
+      // A new turn replaces any word offer still on screen — an unanswered
+      // invitation simply passes, it never nags.
+      _pendingOffer = turn.wordOffer;
       _failed = false;
       _busy = false;
     });
@@ -482,6 +499,49 @@ class _CompanionScreenState extends State<CompanionScreen> {
       if (!mounted) return;
       setState(() => _painting = false);
     }
+  }
+
+  /// The creator adopts an offered word into the shared language: it is
+  /// stored (and so backed up), spoken, and the model is told — from this
+  /// moment it is a real word of both sides.
+  Future<void> _adoptWord(WordOffer offer) async {
+    final lex = await LexiconStore().adopt(LexiconWord(
+      word: offer.word,
+      emoji: offer.emoji,
+      meaning: offer.meaning,
+      origin: _creation.isEmpty
+          ? ''
+          : _creation.first.text.split(RegExp(r'\s+')).take(4).join(' '),
+      createdAtMs: DateTime.now().millisecondsSinceEpoch,
+    ));
+    if (!mounted) return;
+    setState(() {
+      _lexicon = lex;
+      _pendingOffer = null;
+    });
+    // The adoption is a real turn: the user's yes enters the visible
+    // conversation and the model hears the word is now theirs to speak.
+    await _send(
+      'כן! «${offer.word}» נכנסת ל«${lex.displayName}»',
+      kind: 'word_adopt',
+      shownOptions: const ['כן! לשפה שלנו', 'לא עכשיו'],
+      emoji: offer.emoji,
+    );
+  }
+
+  /// Declining a word is local and free — no model turn, no persuasion
+  /// (ה"לא" זול תמיד). The offer simply leaves the screen.
+  void _dismissOffer(WordOffer offer) {
+    unawaited(_log.logSelection(
+      shownOptions: const ['כן! לשפה שלנו', 'לא עכשיו'],
+      chosen: 'לא עכשיו',
+      chosenIndex: 1,
+      kind: 'word_dismiss',
+      source: 'user',
+      lowEnergy: _lowEnergy,
+      latencyMs: DateTime.now().difference(_optionsShownAt).inMilliseconds,
+    ));
+    setState(() => _pendingOffer = null);
   }
 
   /// "דף חדש": closes the current page — the next sentences and the next
@@ -823,6 +883,17 @@ class _CompanionScreenState extends State<CompanionScreen> {
                     ),
                   ],
                 ),
+              ),
+            if (_pendingOffer != null &&
+                !_busy &&
+                !_failed &&
+                !_turn.needsConfirmation)
+              _WordOfferCard(
+                offer: _pendingOffer!,
+                languageName: _lexicon.displayName,
+                onSpeak: _speak,
+                onAdopt: () => _adoptWord(_pendingOffer!),
+                onDismiss: () => _dismissOffer(_pendingOffer!),
               ),
             if (_failed)
               _RetryArea(onRetry: _retry, detail: _lastError)
@@ -1502,6 +1573,102 @@ class _Chip extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A word offered to the shared invented language, waiting for the
+/// creator's yes. Rides ABOVE the regular options — the conversation stays
+/// open either way, and "not now" is one quiet tap. Tapping the word
+/// speaks it, so it can be heard before it is adopted.
+class _WordOfferCard extends StatelessWidget {
+  const _WordOfferCard({
+    required this.offer,
+    required this.languageName,
+    required this.onSpeak,
+    required this.onAdopt,
+    required this.onDismiss,
+  });
+
+  final WordOffer offer;
+  final String languageName;
+  final ValueChanged<String> onSpeak;
+  final VoidCallback onAdopt;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.primary, width: 2),
+      ),
+      child: Column(
+        children: [
+          Text(
+            '🌱 מילה חדשה ל«$languageName»?',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: AppColors.primaryDark,
+            ),
+          ),
+          const SizedBox(height: 8),
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => onSpeak(offer.word),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(offer.emoji, style: const TextStyle(fontSize: 32)),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      '«${offer.word}»',
+                      style: const TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.text,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  const Icon(Icons.volume_up_rounded,
+                      size: 20, color: AppColors.primary),
+                ],
+              ),
+            ),
+          ),
+          Text(
+            offer.meaning,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 17, color: AppColors.textSoft),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: BigButton(
+                  label: 'כן! לשפה שלנו',
+                  emoji: '🌱',
+                  onTap: onAdopt,
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: onDismiss,
+                child: const Text('לא עכשיו', style: TextStyle(fontSize: 16)),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

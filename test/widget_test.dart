@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:creative_aac/main.dart';
 import 'package:creative_aac/models/companion.dart';
+import 'package:creative_aac/models/lexicon.dart';
 import 'package:creative_aac/models/profile.dart';
 import 'package:creative_aac/models/story.dart';
 import 'package:creative_aac/screens/partner_screen.dart';
@@ -16,6 +17,7 @@ import 'package:creative_aac/services/companion_service.dart';
 import 'package:creative_aac/services/creation_context.dart';
 import 'package:creative_aac/services/image_sink.dart';
 import 'package:creative_aac/services/interaction_log.dart';
+import 'package:creative_aac/services/lexicon_store.dart';
 import 'package:creative_aac/services/obz_importer.dart';
 import 'package:creative_aac/services/speech.dart';
 
@@ -126,6 +128,87 @@ void main() {
     expect(junk.confirm, isNull);
     expect(junk.options, isEmpty);
     expect(junk.questions, ['שאלה']);
+  });
+
+  test('turn carries a word offer only when it has a real word', () {
+    final offered = CompanionTurn.fromJson(const {
+      'say': 'יש לי רעיון למילה',
+      'word_offer': {'word': 'בזוזי', 'emoji': '🐕', 'meaning': 'כשהכלב שמח'},
+    });
+    expect(offered.wordOffer!.word, 'בזוזי');
+    expect(offered.wordOffer!.emoji, '🐕');
+    expect(offered.wordOffer!.meaning, 'כשהכלב שמח');
+
+    // null, junk, or an empty word — no offer, no crash mid-session.
+    expect(
+        CompanionTurn.fromJson(const {'say': 'א', 'word_offer': null})
+            .wordOffer,
+        isNull);
+    expect(
+        CompanionTurn.fromJson(const {'say': 'א', 'word_offer': 'לא אובייקט'})
+            .wordOffer,
+        isNull);
+    expect(
+        CompanionTurn.fromJson(const {
+          'say': 'א',
+          'word_offer': {'word': '  ', 'emoji': '🌱', 'meaning': 'ריק'},
+        }).wordOffer,
+        isNull);
+  });
+
+  test('lexicon round-trips, renders its prompt block, and survives junk',
+      () {
+    const lex = Lexicon(name: 'רוניקית', words: [
+      LexiconWord(
+          word: 'בזוזי',
+          emoji: '🐕',
+          meaning: 'כשהכלב שמח',
+          origin: 'הסיפור על צ׳יקו'),
+    ]);
+
+    final restored = Lexicon.decode(lex.encode());
+    expect(restored.name, 'רוניקית');
+    expect(restored.words.single.word, 'בזוזי');
+    expect(restored.words.single.origin, 'הסיפור על צ׳יקו');
+
+    // Adopted words are REAL words: the prompt block says use them as-is.
+    final prompt = restored.toPromptText();
+    expect(prompt, contains('רוניקית'));
+    expect(prompt, contains('«בזוזי»'));
+    expect(prompt, contains('כשהכלב שמח'));
+
+    // Empty language: no prompt block, a friendly display name.
+    expect(const Lexicon().toPromptText(), isEmpty);
+    expect(const Lexicon().displayName, 'השפה שלנו');
+    expect(Lexicon.decode('not json').isEmpty, isTrue);
+
+    // Name suggestion follows the creator's name (a suggestion only).
+    expect(Lexicon.suggestName('אריק'), 'אריקית');
+    expect(Lexicon.suggestName('רוני'), 'רוניקית');
+    expect(Lexicon.suggestName(''), '');
+  });
+
+  test('lexicon store adopts once per spelling and removes cheaply',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = LexiconStore();
+
+    var lex = await store.adopt(const LexiconWord(
+        word: 'בזוזי', emoji: '🐕', meaning: 'כשהכלב שמח'));
+    expect(lex.words.single.word, 'בזוזי');
+
+    // Same spelling again — first adoption wins (identity over update).
+    lex = await store.adopt(const LexiconWord(
+        word: 'בזוזי', emoji: '🎈', meaning: 'אחר'));
+    expect(lex.words.single.emoji, '🐕');
+
+    lex = await store.rename('רוניקית');
+    expect(lex.displayName, 'רוניקית');
+    expect(lex.words, hasLength(1)); // renaming never drops words
+
+    lex = await store.remove('בזוזי');
+    expect(lex.isEmpty, isTrue);
+    expect(lex.name, 'רוניקית'); // the language survives its last word
   });
 
   test('turn carries the rolling creation summary when present', () {

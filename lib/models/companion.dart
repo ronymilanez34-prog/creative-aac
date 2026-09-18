@@ -47,6 +47,27 @@ class SaySymbol {
       );
 }
 
+/// A word the companion offers to the shared invented language ("רוניקית"):
+/// an invitation, never a decision — the word exists only if the creator
+/// adopts it (and adoption is theirs to give in the UI, not the model's).
+class WordOffer {
+  const WordOffer({
+    required this.word,
+    required this.emoji,
+    required this.meaning,
+  });
+
+  final String word;
+  final String emoji;
+  final String meaning;
+
+  factory WordOffer.fromJson(Map<String, dynamic> j) => WordOffer(
+        word: (j['word'] ?? '').toString(),
+        emoji: (j['emoji'] ?? '').toString(),
+        meaning: (j['meaning'] ?? '').toString(),
+      );
+}
+
 class CompanionTurn {
   const CompanionTurn({
     required this.say,
@@ -60,6 +81,7 @@ class CompanionTurn {
     this.questions = const [],
     this.safeguard = false,
     this.creationSummary,
+    this.wordOffer,
   });
 
   /// Short warm response — spoken aloud (and the fallback when no symbols).
@@ -103,6 +125,11 @@ class CompanionTurn {
   /// while the creation is short or on turns that didn't refresh it.
   final String? creationSummary;
 
+  /// A new word offered to the shared invented language, or null on most
+  /// turns. The screen shows it as an adoption card next to the regular
+  /// options — never instead of them.
+  final WordOffer? wordOffer;
+
   factory CompanionTurn.fromJson(Map<String, dynamic> j) => CompanionTurn(
         say: (j['say'] ?? '').toString(),
         saySymbols: (j['say_symbols'] as List? ?? const [])
@@ -127,6 +154,13 @@ class CompanionTurn {
             .toList(),
         safeguard: j['safeguard'] == true,
         creationSummary: j['creation_summary']?.toString(),
+        wordOffer: j['word_offer'] is Map<String, dynamic> &&
+                ((j['word_offer'] as Map<String, dynamic>)['word'] ?? '')
+                    .toString()
+                    .trim()
+                    .isNotEmpty
+            ? WordOffer.fromJson(j['word_offer'] as Map<String, dynamic>)
+            : null,
       );
 }
 
