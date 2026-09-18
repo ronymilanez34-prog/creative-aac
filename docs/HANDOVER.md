@@ -7,6 +7,7 @@
 > **מה לקרוא לפי סדר:** [`VISION.md`](../VISION.md) ← למה →
 > [`TEN_WAYS.md`](TEN_WAYS.md) + [`TEN_HATS.md`](TEN_HATS.md) ← סינתזות
 > המחקר → המסמך הזה ← איפה אנחנו → [`SETUP.md`](SETUP.md) ← איך מדליקים.
+> מבט מנהל המוצר העדכני (18.9): [`PM_INSIGHTS_18_9.md`](PM_INSIGHTS_18_9.md).
 
 ---
 
