@@ -30,7 +30,8 @@
  *    by the app from recent selection latencies; steers how much the model
  *    contributes (shorten/lay out vs. slow down and calm).
  * Response: the parsed JSON turn
- *  ({ say, creation_update, options, confirm, partner_tip, questions, safeguard }).
+ *  ({ say, creation_update, options, confirm, word_offer, partner_tip,
+ *     questions, safeguard }).
  */
 
 const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https");
@@ -73,6 +74,7 @@ const TURN_SCHEMA = {
     "needs_confirmation",
     "confirm",
     "options",
+    "word_offer",
     "partner_tip",
     "questions",
     "safeguard",
@@ -120,6 +122,23 @@ const TURN_SCHEMA = {
           label: { type: "string" },
         },
       },
+    },
+    // An invented word offered to the shared language — adoption stays
+    // with the creator (the app asks; the model only invites).
+    word_offer: {
+      anyOf: [
+        { type: "null" },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["word", "emoji", "meaning"],
+          properties: {
+            word: { type: "string" },
+            emoji: { type: "string" },
+            meaning: { type: "string" },
+          },
+        },
+      ],
     },
     partner_tip: { type: ["string", "null"] },
     questions: { type: "array", items: { type: "string" } },

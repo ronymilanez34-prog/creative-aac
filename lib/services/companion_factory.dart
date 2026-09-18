@@ -2,6 +2,7 @@ import '../config.dart';
 import 'board_store.dart';
 import 'claude_companion_service.dart';
 import 'companion_service.dart';
+import 'lexicon_store.dart';
 import 'profile_store.dart';
 
 /// The one recipe for a companion service, used by every door into the
@@ -12,7 +13,15 @@ import 'profile_store.dart';
 Future<CompanionService> buildCompanionService() async {
   final profile = await ProfileStore().load();
   final boardWords = await BoardStore().load();
+  final lexicon = await LexiconStore().load();
   var promptText = profile.toPromptText();
+  if (!lexicon.isEmpty) {
+    // The shared invented language: adopted words are real words of both
+    // sides — the model must speak them (a word adopted mid-session reaches
+    // the model through the conversation history until the next session
+    // bakes it in here).
+    promptText = '$promptText\n${lexicon.toPromptText()}'.trim();
+  }
   if (boardWords.isNotEmpty) {
     // A button's spoken text often carries the MEANING behind a private
     // name ("צ'יקו" speaks as "צ'יקו הכלב שלי") — ride it along so the
