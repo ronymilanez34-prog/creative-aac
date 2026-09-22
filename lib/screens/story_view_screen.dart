@@ -12,6 +12,7 @@ import '../services/speech.dart';
 import '../services/story_store.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
+import '../widgets/full_image_view.dart';
 import 'companion_screen.dart';
 
 /// Reads a finished [Story] one page at a time, with big picture + text and a
@@ -186,13 +187,19 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
                       // The page's REAL picture when it has one — the
                       // creation itself, not a stand-in; emoji otherwise.
                       if (_pageImage(i) != null)
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
-                          child: Image.memory(
-                            _pageImage(i)!,
-                            height: showQuestions ? 160.0 : 260.0,
-                            fit: BoxFit.contain,
-                            gaplessPlayback: true,
+                        // Tap → full screen with zoom, same as in the
+                        // creation loop — details must be seeable.
+                        GestureDetector(
+                          onTap: () =>
+                              showFullImage(context, _pageImage(i)!),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(18),
+                            child: Image.memory(
+                              _pageImage(i)!,
+                              height: showQuestions ? 160.0 : 260.0,
+                              fit: BoxFit.contain,
+                              gaplessPlayback: true,
+                            ),
                           ),
                         )
                       else

@@ -22,6 +22,7 @@ import '../services/story_store.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
 import '../widgets/board_composer.dart';
+import '../widgets/full_image_view.dart';
 import '../widgets/quick_bar.dart';
 
 /// The creation loop: "supported free conversation" co-creation.
@@ -1114,15 +1115,35 @@ class _CreationCard extends StatelessWidget {
               children: [
                 // The WHOLE picture, never a cropped strip — the scene is
                 // the creation (field feedback 16.9: "the picture gets
-                // cut"). Contain keeps every character in frame.
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.memory(
-                    image!,
-                    height: 240,
-                    width: double.infinity,
-                    fit: BoxFit.contain,
-                    gaplessPlayback: true,
+                // cut"). Contain keeps every character in frame; a tap
+                // opens it full screen with zoom — chosen details must be
+                // SEEABLE (field feedback 22.9: "לא רואה הכל").
+                GestureDetector(
+                  onTap: () => showFullImage(context, image!),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.memory(
+                      image!,
+                      height: 240,
+                      width: double.infinity,
+                      fit: BoxFit.contain,
+                      gaplessPlayback: true,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: 6,
+                  left: 6,
+                  child: IgnorePointer(
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.zoom_out_map,
+                          size: 18, color: Colors.white),
+                    ),
                   ),
                 ),
                 if (painting)
