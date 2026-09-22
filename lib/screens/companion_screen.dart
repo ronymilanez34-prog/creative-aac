@@ -113,6 +113,19 @@ class _CompanionScreenState extends State<CompanionScreen> {
   Uint8List? _sceneImage;
   bool _painting = false;
 
+  /// A scene that arrived while the painter was busy. Painting takes
+  /// 10-20s and choices come faster — the newest description waits here
+  /// and paints the moment the brush is free. Latest wins: every
+  /// scene_update describes the WHOLE scene, so it contains the ones it
+  /// replaced (field feedback 22.9: "שמתי דברים ולא מעדכן את התמונה" —
+  /// choices made mid-paint were silently dropped).
+  String? _pendingScene;
+  int _pendingScenePage = 0;
+
+  /// A paint failure must be visible (remote-debugging rule): shown small
+  /// under the picture, cleared by the next successful paint.
+  String _paintError = '';
+
   /// The visible conversation — the user's choices, the companion's
   /// replies, and each piece added to the creation. A choice that vanishes
   /// on tap leaves no sense of dialogue or authorship; the thread is where
@@ -309,7 +322,17 @@ class _CompanionScreenState extends State<CompanionScreen> {
       _busy = false;
     });
     _scrollThreadToEnd();
-    if (speak) _speak(turn.say);
+    if (speak) {
+      // A confirm question is spoken WHOLE — question and choices — the
+      // screen must never assume reading (field feedback 22.9: "תזכור
+      // שאני לא יודע לקרוא"). Tapping an option's 🔊 repeats just it.
+      final c = turn.confirm;
+      if (turn.needsConfirmation && c != null && c.options.isNotEmpty) {
+        _speak('${turn.say} ${c.question} ${c.options.join(', או ')}');
+      } else {
+        _speak(turn.say);
+      }
+    }
   }
 
   Future<void> _send(
@@ -520,7 +543,12 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// its look between turns. Failure is quiet: the words are still there,
   /// and the next scene_update tries again.
   Future<void> _paintScene(String scene, {required int forPage}) async {
-    if (_painting) return;
+    if (_painting) {
+      // Never drop a choice: the newest scene waits and paints next.
+      _pendingScene = scene;
+      _pendingScenePage = forPage;
+      return;
+    }
     setState(() => _painting = true);
     try {
       // This page's own picture is the edit base when it has one; a fresh
@@ -540,10 +568,24 @@ class _CompanionScreenState extends State<CompanionScreen> {
         _sceneImage = bytes;
         _sceneSnapshots[forPage] = bytes;
         _sceneDirty = true;
+        _paintError = '';
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _painting = false);
+      setState(() {
+        _painting = false;
+        // Visible, calm, and specific enough for a screenshot to tell us
+        // what failed — a swallowed error looks like "it just ignores me".
+        _paintError = 'הציור לא הצליח הפעם ($e) — הבחירה הבאה תנסה שוב';
+      });
+    }
+    // Whatever queued while the brush was busy paints now, on the fresh
+    // base — so nothing the creator chose goes missing from the picture.
+    if (mounted && _pendingScene != null) {
+      final nextScene = _pendingScene!;
+      final nextPage = _pendingScenePage;
+      _pendingScene = null;
+      await _paintScene(nextScene, forPage: nextPage);
     }
   }
 
@@ -650,7 +692,16 @@ class _CompanionScreenState extends State<CompanionScreen> {
     if (picked == null || !mounted) return;
     setState(() => _sceneStyle = picked);
     _speak(picked.name);
-    if (_sceneImage != null && ImagineService.available && !_painting) {
+    if (_sceneImage != null && ImagineService.available && _painting) {
+      // Brush busy — the style change rides the pending queue: the scene
+      // repaints (with the new style, via _sceneStyle) right after.
+      if (_lastScene != null && _lastScene!.trim().isNotEmpty) {
+        _pendingScene = _lastScene;
+        _pendingScenePage = _currentPage;
+      }
+      return;
+    }
+    if (_sceneImage != null && ImagineService.available) {
       // Same scene, new look — repaint the current page's picture.
       setState(() => _painting = true);
       try {
@@ -665,10 +716,21 @@ class _CompanionScreenState extends State<CompanionScreen> {
           _sceneImage = bytes;
           _sceneSnapshots[_currentPage] = bytes;
           _sceneDirty = true;
+          _paintError = '';
         });
-      } catch (_) {
+      } catch (e) {
         if (!mounted) return;
-        setState(() => _painting = false);
+        setState(() {
+          _painting = false;
+          _paintError = 'החלפת הסגנון לא הצליחה ($e) — אפשר לנסות שוב';
+        });
+      }
+      // A scene that queued while the style repainted goes next.
+      if (mounted && _pendingScene != null) {
+        final nextScene = _pendingScene!;
+        final nextPage = _pendingScenePage;
+        _pendingScene = null;
+        await _paintScene(nextScene, forPage: nextPage);
       }
     }
   }
@@ -893,6 +955,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
               scroll: _creationScroll,
               image: _sceneSnapshots[_currentPage],
               painting: _painting,
+              paintError: _paintError,
             ),
             Expanded(
               child: ListView.separated(
@@ -946,6 +1009,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
             else if (_turn.needsConfirmation && _turn.confirm != null)
               _ConfirmArea(
                 prompt: _turn.confirm!,
+                onSpeak: _speak,
                 onChoose: (o, i) => _send(
                   o,
                   kind: 'confirm',
@@ -998,6 +1062,7 @@ class _CreationCard extends StatelessWidget {
     required this.scroll,
     this.image,
     this.painting = false,
+    this.paintError = '',
     this.pageNumber,
   });
 
@@ -1012,6 +1077,9 @@ class _CreationCard extends StatelessWidget {
 
   /// A repaint is in flight (small quiet indicator on the picture).
   final bool painting;
+
+  /// The last paint failure, when there is one — visible, never swallowed.
+  final String paintError;
 
   @override
   Widget build(BuildContext context) {
@@ -1058,18 +1126,49 @@ class _CreationCard extends StatelessWidget {
                   ),
                 ),
                 if (painting)
-                  const Positioned(
+                  // Loud enough to be understood: a bare spinner read as
+                  // "it ignores me" in the field — say what's happening.
+                  Positioned(
                     top: 6,
                     left: 6,
-                    child: SizedBox(
-                      height: 18,
-                      width: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2.5, color: Colors.white),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            height: 14,
+                            width: 14,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
+                          ),
+                          SizedBox(width: 6),
+                          Text(
+                            'מציירים… 🎨',
+                            style:
+                                TextStyle(fontSize: 13, color: Colors.white),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
               ],
             ),
+            if (paintError.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  paintError,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 13, color: Colors.redAccent),
+                ),
+              ),
             const SizedBox(height: 10),
           ] else if (painting) ...[
             const Padding(
@@ -1729,10 +1828,19 @@ class _WordOfferCard extends StatelessWidget {
 }
 
 class _ConfirmArea extends StatelessWidget {
-  const _ConfirmArea({required this.prompt, required this.onChoose});
+  const _ConfirmArea({
+    required this.prompt,
+    required this.onChoose,
+    required this.onSpeak,
+  });
 
   final ConfirmPrompt prompt;
   final void Function(String option, int index) onChoose;
+
+  /// Hearing is the reading here: the question has its own speaker, and
+  /// every option has a 🔊 to hear it WITHOUT choosing it — a non-reader
+  /// must be able to compare choices safely before committing.
+  final ValueChanged<String> onSpeak;
 
   @override
   Widget build(BuildContext context) {
@@ -1746,23 +1854,48 @@ class _ConfirmArea extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Text(
-            prompt.question,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: AppColors.text,
-            ),
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'לשמוע את השאלה',
+                icon: const Icon(Icons.volume_up_rounded,
+                    color: AppColors.accent, size: 28),
+                onPressed: () => onSpeak(prompt.question),
+              ),
+              Expanded(
+                child: Text(
+                  prompt.question,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.text,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 44), // balances the speaker button
+            ],
           ),
           const SizedBox(height: 14),
           for (var i = 0; i < prompt.options.length; i++)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: BigButton(
-                label: prompt.options[i],
-                color: AppColors.accent,
-                onTap: () => onChoose(prompt.options[i], i),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'לשמוע בלי לבחור',
+                    icon: const Icon(Icons.volume_up_rounded,
+                        color: AppColors.accent),
+                    onPressed: () => onSpeak(prompt.options[i]),
+                  ),
+                  Expanded(
+                    child: BigButton(
+                      label: prompt.options[i],
+                      color: AppColors.accent,
+                      onTap: () => onChoose(prompt.options[i], i),
+                    ),
+                  ),
+                ],
               ),
             ),
         ],
