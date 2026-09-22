@@ -52,7 +52,9 @@ const APP_KEY = defineSecret("APP_KEY");
 // repeated its own offers, ignored "משהו אחר", no thread. Sonnet is the
 // conversation-quality lever; turns are short (1K max tokens) so the cost
 // per turn stays small. Roll back by restoring claude-haiku-4-5-20251001.
-const MODEL = "claude-sonnet-5";
+// (claude-sonnet-5 was rejected with a 400 on this account's API key —
+// the Claude 5 family isn't open to every org; Sonnet 4.5 is GA.)
+const MODEL = "claude-sonnet-4-5-20250929";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const REGION = "europe-west1"; // keep data in-region; adjust as needed
 
@@ -332,7 +334,17 @@ exports.companionTurnHttp = onRequest(
       res.status(200).json(turn);
     } catch (err) {
       const status = err instanceof HttpsError && err.code === "invalid-argument" ? 400 : 500;
-      res.status(status).json({ error: err.message || String(err) });
+      // The upstream detail travels to the screen (truncated): remote
+      // debugging with non-technical testers depends on the error SAYING
+      // what happened — "Claude החזיר שגיאה (400)" alone forced guessing.
+      const detail =
+        err instanceof HttpsError && err.details
+          ? String(typeof err.details === "string" ? err.details : JSON.stringify(err.details)).slice(0, 400)
+          : "";
+      res.status(status).json({
+        error: err.message || String(err),
+        ...(detail ? { detail } : {}),
+      });
     }
   }
 );
