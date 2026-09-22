@@ -44,6 +44,14 @@ jobs:
       - name: Generate platform folders
         run: flutter create . --platforms android,web
 
+      # Invented-language words carry the creator's own recorded voice —
+      # the freshly generated manifest needs the microphone permission the
+      # `record` plugin requires (the web asks at runtime; Android can't).
+      - name: Allow microphone on Android (recorded words)
+        run: |
+          sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application#' android/app/src/main/AndroidManifest.xml
+          grep -q RECORD_AUDIO android/app/src/main/AndroidManifest.xml
+
       - name: Dependencies
         run: flutter pub get
 

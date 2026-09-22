@@ -19,6 +19,8 @@
  *     inputSource, lowEnergy, paceHint }
  *  • history: recent conversation as [{role: "user"|"assistant", text}] —
  *    the model is stateless, so this is its only memory of the dialogue.
+ *  • declinedOptions: labels that were on screen when the user chose
+ *    "משהו אחר" this session — rendered as a do-not-reoffer block.
  *  • creationSummary: rolling summary of a long creation — when present,
  *    creationSoFar carries only the newest pieces and the summary carries
  *    the rest (the app decides when to switch; see creation_context.dart).
@@ -43,11 +45,14 @@ const ANTHROPIC_API_KEY = defineSecret("ANTHROPIC_API_KEY");
 // Shared secret the app sends as `x-app-key` to companionTurnHttp.
 const APP_KEY = defineSecret("APP_KEY");
 
-// Fast, low-cost model — well suited to short, structured co-creation turns.
 // Pinned on purpose: a model swap changes how the companion "sounds" and is a
 // clinical change, not an infra detail — re-run the Hebrew behaviour checks
 // before bumping this.
-const MODEL = "claude-haiku-4-5-20251001";
+// 22.9, from live testing: Haiku 4.5 could not hold a real conversation —
+// repeated its own offers, ignored "משהו אחר", no thread. Sonnet is the
+// conversation-quality lever; turns are short (1K max tokens) so the cost
+// per turn stays small. Roll back by restoring claude-haiku-4-5-20251001.
+const MODEL = "claude-sonnet-5";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const REGION = "europe-west1"; // keep data in-region; adjust as needed
 
@@ -179,6 +184,7 @@ async function runCompanionTurn(data) {
     creationSummary,
     sceneSoFar,
     history,
+    declinedOptions,
     userInput,
     inputSource,
     lowEnergy,
@@ -188,11 +194,21 @@ async function runCompanionTurn(data) {
     throw new HttpsError("invalid-argument", "חסר קלט מהמשתמש (userInput).");
   }
 
+  // The session's walked-past list: options that were on screen when the
+  // user chose "משהו אחר". Untrusted client input — coerce and cap.
+  const declined = Array.isArray(declinedOptions)
+    ? declinedOptions
+        .map((d) => String(d || "").trim().slice(0, 80))
+        .filter(Boolean)
+        .slice(-40)
+    : [];
+
   const system = buildSystemPrompt({
     profile,
     creationSoFar,
     creationSummary: typeof creationSummary === "string" ? creationSummary : undefined,
     sceneSoFar: typeof sceneSoFar === "string" ? sceneSoFar : undefined,
+    declinedOptions: declined,
     lowEnergy: lowEnergy === true,
     paceHint: typeof paceHint === "string" ? paceHint : undefined,
   });

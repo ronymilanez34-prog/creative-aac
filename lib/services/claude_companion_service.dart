@@ -54,6 +54,7 @@ class ClaudeCompanionService implements CompanionService {
     String? creationSummary,
     String? sceneSoFar,
     List<TurnMessage> history = const [],
+    List<String> declinedOptions = const [],
     InputSource source = InputSource.user,
     bool lowEnergy = false,
     String? paceHint,
@@ -82,6 +83,9 @@ class ClaudeCompanionService implements CompanionService {
             'history': [
               for (final m in history) {'role': m.role, 'text': m.text},
             ],
+            // What "משהו אחר" left behind this session — the server tells
+            // the model never to bring these back.
+            if (declinedOptions.isNotEmpty) 'declinedOptions': declinedOptions,
             'userInput': userInput,
             'inputSource': source == InputSource.partner ? 'partner' : 'user',
             'lowEnergy': lowEnergy,

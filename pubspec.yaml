@@ -26,6 +26,12 @@ dependencies:
   # 12.x on purpose: 13.x wants win32 ^6 while file_picker 10.x pins ^5 —
   # same SharePlus.instance/ShareParams API either way.
   share_plus: ^12.0.2
+  # The creator's own voice on invented words (HANDOVER 10.9): `record`
+  # captures a short clip (MediaRecorder on the web — Safari included via
+  # the WAV fallback; AAC on device), `audioplayers` plays it back — the
+  # button speaks the sound THEY gave the word, not TTS.
+  record: ^6.0.0
+  audioplayers: ^6.1.0
 
 dev_dependencies:
   flutter_test:

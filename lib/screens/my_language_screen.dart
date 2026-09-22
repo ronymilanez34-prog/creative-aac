@@ -6,9 +6,11 @@ import '../services/board_store.dart';
 import '../services/lexicon_store.dart';
 import '../services/profile_store.dart';
 import '../services/speech.dart';
+import '../services/voice_notes.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
 import '../widgets/board_composer.dart';
+import '../widgets/voice_recorder_sheet.dart';
 
 /// "השפה שלנו" — the dictionary of the invented language the creator and
 /// the AI grow together. Managing a language IS agency: here the creator
@@ -126,6 +128,80 @@ class _MyLanguageScreenState extends State<MyLanguageScreen> {
     _speech.speak(coined.word);
   }
 
+  /// The word in its owner's voice (HANDOVER 10.9): records through the
+  /// shared sheet and stores the clip on the word. From then on, speaking
+  /// the word — here, and anywhere in the app via [Speech] — plays THEIR
+  /// sound, not TTS.
+  Future<void> _recordVoice(LexiconWord w) async {
+    final clip = await showVoiceRecorderSheet(context, word: w.word);
+    if (clip == null || !mounted) return;
+    final lex = await _store.setVoice(w.word, clip);
+    if (!mounted) return;
+    setState(() => _lexicon = lex);
+  }
+
+  /// A word that already has a voice: hear / re-record / remove — the
+  /// same cheap "no" the rest of the language management gives.
+  Future<void> _voiceMenu(LexiconWord w) async {
+    if (!w.hasVoice) {
+      _recordVoice(w);
+      return;
+    }
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '«${w.word}» — בקול שלך',
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 16),
+                BigButton(
+                  label: 'לשמוע',
+                  emoji: '🔊',
+                  color: AppColors.accent,
+                  onTap: () => VoiceNotes.play(w.voice),
+                ),
+                const SizedBox(height: 10),
+                BigButton(
+                  label: 'להקליט מחדש',
+                  emoji: '🎤',
+                  onTap: () => Navigator.of(ctx).pop('rerecord'),
+                ),
+                const SizedBox(height: 10),
+                BigButton(
+                  label: 'למחוק את ההקלטה',
+                  emoji: '🗑️',
+                  color: AppColors.textSoft,
+                  onTap: () => Navigator.of(ctx).pop('delete'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('סגירה'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (action == 'rerecord') {
+      await _recordVoice(w);
+    } else if (action == 'delete') {
+      final lex = await _store.setVoice(w.word, '');
+      if (!mounted) return;
+      setState(() => _lexicon = lex);
+    }
+  }
+
   Future<void> _removeWord(LexiconWord w) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -196,10 +272,15 @@ class _MyLanguageScreenState extends State<MyLanguageScreen> {
                           final w = _lexicon.words[i];
                           return _WordCard(
                             word: w,
-                            onSpeak: () => _speech.speak(
-                                w.meaning.isEmpty
+                            // With a recording, the card speaks the word
+                            // in its owner's voice; without one, TTS reads
+                            // word + meaning as before.
+                            onSpeak: w.hasVoice
+                                ? () => VoiceNotes.play(w.voice)
+                                : () => _speech.speak(w.meaning.isEmpty
                                     ? w.word
                                     : '${w.word}. ${w.meaning}'),
+                            onVoice: () => _voiceMenu(w),
                             onRemove: () => _removeWord(w),
                           );
                         },
@@ -227,11 +308,13 @@ class _WordCard extends StatelessWidget {
   const _WordCard({
     required this.word,
     required this.onSpeak,
+    required this.onVoice,
     required this.onRemove,
   });
 
   final LexiconWord word;
   final VoidCallback onSpeak;
+  final VoidCallback onVoice;
   final VoidCallback onRemove;
 
   @override
@@ -276,8 +359,26 @@ class _WordCard extends StatelessWidget {
                         style: const TextStyle(
                             fontSize: 13, color: AppColors.textSoft),
                       ),
+                    if (word.hasVoice)
+                      const Text(
+                        '🎤 בקול שלך',
+                        style: TextStyle(
+                            fontSize: 13, color: AppColors.primaryDark),
+                      ),
                   ],
                 ),
+              ),
+              IconButton(
+                tooltip: word.hasVoice
+                    ? 'הקול שלך על המילה'
+                    : 'להקליט את המילה בקול שלך',
+                icon: Icon(
+                  word.hasVoice ? Icons.mic : Icons.mic_none,
+                  color: word.hasVoice
+                      ? AppColors.primaryDark
+                      : AppColors.textSoft,
+                ),
+                onPressed: onVoice,
               ),
               IconButton(
                 tooltip: 'להוציא מהשפה',
@@ -329,6 +430,11 @@ class _AddWordScreenState extends State<_AddWordScreen> {
   final TextEditingController _word = TextEditingController();
   final TextEditingController _meaning = TextEditingController();
   String _emoji = '🌱';
+
+  /// The word's sound in the creator's own voice, recorded right here —
+  /// a brand-new word has no correct TTS pronunciation, so the recording
+  /// can be part of coining it (and can always be added later).
+  String _voice = '';
 
   @override
   void dispose() {
@@ -392,6 +498,16 @@ class _AddWordScreenState extends State<_AddWordScreen> {
     if (picked != null && mounted) setState(() => _emoji = picked);
   }
 
+  Future<void> _recordVoice() async {
+    final word = _word.text.trim();
+    final clip = await showVoiceRecorderSheet(
+      context,
+      word: word.isEmpty ? 'המילה החדשה' : word,
+    );
+    if (clip == null || !mounted) return;
+    setState(() => _voice = clip);
+  }
+
   void _done() {
     final word = _word.text.trim();
     if (word.isEmpty) return;
@@ -399,6 +515,7 @@ class _AddWordScreenState extends State<_AddWordScreen> {
       word: word,
       emoji: _emoji,
       meaning: _meaning.text.trim(),
+      voice: _voice,
       createdAtMs: DateTime.now().millisecondsSinceEpoch,
     ));
   }
@@ -460,7 +577,9 @@ class _AddWordScreenState extends State<_AddWordScreen> {
                     icon: const Icon(Icons.volume_up_rounded,
                         color: AppColors.primary),
                     onPressed: canFinish
-                        ? () => _speech.speak(_word.text.trim())
+                        ? (_voice.isNotEmpty
+                            ? () => VoiceNotes.play(_voice)
+                            : () => _speech.speak(_word.text.trim()))
                         : null,
                   ),
                   IconButton(
@@ -468,6 +587,41 @@ class _AddWordScreenState extends State<_AddWordScreen> {
                     icon: const Icon(Icons.backspace_outlined),
                     onPressed: _backspace,
                   ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: Icon(_voice.isEmpty ? Icons.mic_none : Icons.mic,
+                          color: AppColors.primaryDark),
+                      label: Text(
+                        _voice.isEmpty
+                            ? 'להקליט את המילה בקול שלך'
+                            : 'המילה בקול שלך — לשמוע',
+                        style: const TextStyle(
+                            fontSize: 16, color: AppColors.primaryDark),
+                      ),
+                      onPressed: _voice.isEmpty
+                          ? _recordVoice
+                          : () => VoiceNotes.play(_voice),
+                    ),
+                  ),
+                  if (_voice.isNotEmpty) ...[
+                    IconButton(
+                      tooltip: 'להקליט מחדש',
+                      icon: const Icon(Icons.refresh),
+                      onPressed: _recordVoice,
+                    ),
+                    IconButton(
+                      tooltip: 'למחוק את ההקלטה',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => setState(() => _voice = ''),
+                    ),
+                  ],
                 ],
               ),
             ),

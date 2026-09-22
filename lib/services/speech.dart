@@ -1,7 +1,14 @@
 import 'package:flutter_tts/flutter_tts.dart';
 
+import 'voice_notes.dart';
+import 'voice_registry.dart';
+
 /// Read-aloud service (Hebrew). One utterance at a time — a new [speak]
 /// cancels the previous one so rapid taps don't queue up.
+///
+/// One exception to TTS: a text that IS exactly an adopted invented word
+/// with a recorded voice plays the creator's own recording instead
+/// ([VoiceRegistry]) — the sound its owner gave a word is the word.
 class Speech {
   FlutterTts? _tts;
   bool _ready = false;
@@ -94,8 +101,15 @@ class Speech {
   }
 
   Future<void> speak(String text) async {
+    final voice = VoiceRegistry.lookup(text);
+    if (voice != null) {
+      await _tts?.stop();
+      await VoiceNotes.play(voice);
+      return;
+    }
     final trimmed = speakable(text);
     if (trimmed.isEmpty) return;
+    await VoiceNotes.stopPlayback();
     await _ensureInit();
     await _tts?.stop();
     final tts = _tts;
@@ -145,9 +159,13 @@ class Speech {
     return b.toString();
   }
 
-  Future<void> stop() async => _tts?.stop();
+  Future<void> stop() async {
+    await VoiceNotes.stopPlayback();
+    await _tts?.stop();
+  }
 
   void dispose() {
+    VoiceNotes.stopPlayback();
     _tts?.stop();
     _tts = null;
     _ready = false;

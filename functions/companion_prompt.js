@@ -44,6 +44,17 @@ const INSTRUCTIONS = `אתה בן-לוויה ליצירה משותפת עבור 
 - בחירה שנראית לא-קשורה או "לא מתחברת"? ביצירה — אל תשאל ואל תיישר: כתוב את
   ההמשך שהופך אותה לנכונה. (במסרים אל אנשים — עדיין מאשרים, כרגיל.)
 
+# שיחה אמיתית — בלי חזרות (כלל קשיח)
+אתה בשיחה מתמשכת אחת, לא בסדרת פתיחות. לפני כל תשובה קרא את ההיסטוריה:
+- שורות [האפשרויות שהוצעו: ...] בהיסטוריה הן מה שכבר שמת על המסך.
+  אל תציע שוב אפשרות שכבר הוצעה — לא באותו ניסוח ולא בניסוח דומה —
+  אלא אם הוא בחר בה ואתם מעמיקים בה, או שהוא ביקש אותה בעצמו.
+- אחרי "משהו אחר": אף אחת מהאפשרויות של התור הקודם לא חוזרת, בשום
+  ניסוח. הבא כיוונים שונים באמת — עולמות תוכן אחרים (אנשים אחרים,
+  מקומות, רגשות, הומור, זיכרון, דמיון), לא וריאציה על אותו נושא.
+- גוון גם את ה-say: אל תפתח שני תורים ברצף באותן מילים, ואל תחזור על
+  אותו משפט עידוד. ענה למה שקרה הרגע — אל "תתחיל מחדש" את השיחה.
+
 # האפשרויות שאתה מציע — "קירות רחבים"
 - ההצעות חייבות להיות שונות זו מזו באמת — כיוונים שונים, לא ניסוחים דומים של
   אותו רעיון. אם קשה למצוא ארבעה כיוונים שונים, עדיף שלושה שונים באמת.
@@ -56,8 +67,10 @@ const INSTRUCTIONS = `אתה בן-לוויה ליצירה משותפת עבור 
     והצע נושאים וכיוונים שונים באמת לאותה יצירה. אל תזרוק את מה
     שכבר נבנה ואל תחזור לתפריט ההתחלה. רק צ'יפ אחד מפורש —
     "יצירה אחרת לגמרי" — מציע לצאת מהסוג עצמו.
-- כלול בכל סט אפשרות אחת שמגיעה מהפרופיל שלו (תחום עניין, נושא אהוב) גם אם
-  היא לא ההמשך "המתבקש" — זו הדלת לעולם שלו.
+- שלב מדי פעם אפשרות מעולמו (מהפרופיל ומאוצר המילים) גם אם היא לא ההמשך
+  "המתבקש" — אבל בטבעיות, בלי להכריז: לעולם אל תגיד "כי זה תחום עניין
+  שלך", "כי אתה אוהב X" או כל הסבר-תיוג אחר. פשוט הצע. ואם הצעה מעולמו
+  נדחתה — אל תדחוף אותה שוב; העולם שלו גדול מרשימת תחומי העניין.
 - התור הראשון אחרי בחירת סוג יצירה (כשהיצירה עוד ריקה): הצע נושאים
   בעיקר מעולמו — האנשים, הדמויות והדברים שבפרופיל ובאוצר המילים שלו
   (אמא, צ'יקו...) — לצד כיוון פתוח אחד. קודם בוחרים מה יוצרים; כאן
@@ -238,7 +251,7 @@ const PACE_NOTES = {
 // lib/services/creation_context.dart.
 const SUMMARY_ASK_CHARS = 700;
 
-function buildSystemPrompt({ profile, creationSoFar, creationSummary, sceneSoFar, lowEnergy, paceHint }) {
+function buildSystemPrompt({ profile, creationSoFar, creationSummary, sceneSoFar, declinedOptions, lowEnergy, paceHint }) {
   const profileText =
     profile && String(profile).trim() ? String(profile).trim() : "אין עדיין פרופיל — פגוש אותו בעדינות ולמד מהתגובות.";
   const creationText =
@@ -272,6 +285,15 @@ function buildSystemPrompt({ profile, creationSoFar, creationSummary, sceneSoFar
     ? `\n\n# הסצנה כפי שצוירה עד עכשיו (יצירה ויזואלית פעילה — לא מתחילים מחדש)\n${sceneText}`
     : "";
 
+  // The session's walked-past list: everything that was on screen when the
+  // user chose "משהו אחר". The one list the model must never draw from.
+  const declined = Array.isArray(declinedOptions)
+    ? declinedOptions.filter((d) => String(d || "").trim())
+    : [];
+  const declinedBlock = declined.length
+    ? `\n\n# נדחה בסשן הזה — אל תציע שוב\nכשהאפשרויות האלה הוצעו, המשתמש בחר "משהו אחר". אל תציע אותן שוב בסשן הזה, בשום ניסוח, אלא אם הוא מבקש אותן בעצמו:\n${declined.map((d) => `- ${String(d).trim()}`).join("\n")}`
+    : "";
+
   return [
     { type: "text", text: INSTRUCTIONS },
     {
@@ -281,7 +303,7 @@ function buildSystemPrompt({ profile, creationSoFar, creationSummary, sceneSoFar
     },
     {
       type: "text",
-      text: `${lowEnergyBlock}${paceBlock}${summaryAskBlock}${creationBlock}${sceneBlock}`,
+      text: `${lowEnergyBlock}${paceBlock}${summaryAskBlock}${creationBlock}${sceneBlock}${declinedBlock}`,
     },
   ];
 }

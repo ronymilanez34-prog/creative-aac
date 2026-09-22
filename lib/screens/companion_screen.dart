@@ -125,6 +125,11 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// the position-bias signal alive. See [ChipSlots].
   final ChipSlots _chipSlots = ChipSlots();
   List<ChipOption> _displayOptions = const [];
+
+  /// Options that were on screen when the user chose "משהו אחר" — the
+  /// session's walked-past list. Sent with every turn; the model must not
+  /// offer these again (they are what "אחר" asked to leave behind).
+  final List<String> _declined = [];
   DateTime _optionsShownAt = DateTime.now();
 
   bool _busy = false;
@@ -219,7 +224,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
       _sessionStoryId = DateTime.now().microsecondsSinceEpoch.toString();
       _turn = widget.service.opening();
     }
-    _thread.add(_ThreadItem.companion(_turn.say, _turn.saySymbols));
+    _thread.add(_ThreadItem.companion(_turn.say, _turn.saySymbols,
+        offeredOptions: [for (final o in _turn.options) o.label]));
     _displayOptions = _chipSlots.arrange(_withoutStandingDoor(_turn.options));
     _optionsShownAt = DateTime.now();
     BoardStore().load().then((words) {
@@ -292,7 +298,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
     if (turn.safeguard) unawaited(_log.logSafeguard());
     setState(() {
       _turn = turn;
-      _thread.add(_ThreadItem.companion(turn.say, turn.saySymbols));
+      _thread.add(_ThreadItem.companion(turn.say, turn.saySymbols,
+          offeredOptions: [for (final o in turn.options) o.label]));
       _displayOptions = _chipSlots.arrange(_withoutStandingDoor(turn.options));
       _optionsShownAt = DateTime.now();
       // A new turn replaces any word offer still on screen — an unanswered
@@ -349,6 +356,34 @@ class _CompanionScreenState extends State<CompanionScreen> {
       if (_recentLatencies.length > 3) _recentLatencies.removeAt(0);
     }
 
+    // A choice beats an old rejection: picking something (chip or typed)
+    // takes it off the walked-past list.
+    if (t != 'משהו אחר') _declined.remove(t);
+
+    // "משהו אחר" is a rejection of what's on screen right now — remember
+    // exactly WHAT was walked past, for the whole session, so the model
+    // can stop bringing the same suggestions back (field feedback 22.9).
+    if (t == 'משהו אחר') {
+      // Navigation and rest chips are not content — walking past them
+      // rejects nothing.
+      const notContent = {
+        'דף חדש', 'רגע של שקט', 'קרא הכל', 'סיימנו', 'עוד',
+        'בואו נמשיך', 'יצירה אחרת לגמרי',
+      };
+      for (final o in _visibleOptions) {
+        final label = o.label.trim();
+        if (label.isNotEmpty &&
+            !notContent.contains(label) &&
+            !_declined.contains(label)) {
+          _declined.add(label);
+        }
+      }
+      // The list rides in the prompt every turn — keep it bounded.
+      while (_declined.length > 40) {
+        _declined.removeAt(0);
+      }
+    }
+
     setState(() => _partnerArmed = false);
     await _performTurn(t, source);
     if (mounted && _failed) _speak('רגע, משהו השתבש. אפשר לנסות שוב.');
@@ -380,7 +415,17 @@ class _CompanionScreenState extends State<CompanionScreen> {
         case _ThreadKind.partner:
           out.add((role: 'user', text: '[הדגמה של השותף/מלווה]: ${it.text}'));
         case _ThreadKind.companion:
-          out.add((role: 'assistant', text: it.text));
+          // The offered chips ride WITH the message: without them the
+          // model has no idea what it already put on screen, so it
+          // repeats itself and "משהו אחר" brings back the same things
+          // (field feedback 22.9).
+          out.add((
+            role: 'assistant',
+            text: it.offeredOptions.isEmpty
+                ? it.text
+                : '${it.text}\n[האפשרויות שהוצעו: '
+                    '${it.offeredOptions.join(' · ')}]',
+          ));
         case _ThreadKind.creation:
           break; // already carried by creationSoFar
       }
@@ -418,6 +463,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
         creationSummary: ctx.creationSummary,
         sceneSoFar: _lastScene,
         history: _historyForBackend(input),
+        declinedOptions: List.unmodifiable(_declined),
         source: source,
         lowEnergy: _lowEnergy,
         paceHint: _paceHint,
@@ -1064,10 +1110,12 @@ class _CreationCard extends StatelessWidget {
 
 /// One entry in the visible conversation.
 class _ThreadItem {
-  const _ThreadItem._(this.kind, this.text, this.symbols, this.emoji);
+  const _ThreadItem._(this.kind, this.text, this.symbols, this.emoji,
+      [this.offeredOptions = const []]);
 
-  factory _ThreadItem.companion(String say, List<SaySymbol> symbols) =>
-      _ThreadItem._(_ThreadKind.companion, say, symbols, '');
+  factory _ThreadItem.companion(String say, List<SaySymbol> symbols,
+          {List<String> offeredOptions = const []}) =>
+      _ThreadItem._(_ThreadKind.companion, say, symbols, '', offeredOptions);
 
   factory _ThreadItem.user(String text,
           {String emoji = '', bool isPartner = false}) =>
@@ -1081,6 +1129,12 @@ class _ThreadItem {
   final String text;
   final List<SaySymbol> symbols;
   final String emoji;
+
+  /// The chips that rode along with a companion bubble — not rendered
+  /// (the chips live in the options area), but sent back in the history
+  /// so the model can SEE what it already offered and stop repeating
+  /// itself (field feedback 22.9).
+  final List<String> offeredOptions;
 }
 
 enum _ThreadKind { user, partner, companion, creation }
