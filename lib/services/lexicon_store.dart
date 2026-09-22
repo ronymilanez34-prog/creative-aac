@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/lexicon.dart';
+import 'voice_registry.dart';
 
 /// On-device storage for the shared invented language. Lives in
 /// SharedPreferences like the profile, so the full backup (backup.dart)
@@ -11,13 +12,20 @@ class LexiconStore {
   Future<Lexicon> load() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);
-    if (raw == null || raw.isEmpty) return const Lexicon();
-    return Lexicon.decode(raw);
+    final lexicon = (raw == null || raw.isEmpty)
+        ? const Lexicon()
+        : Lexicon.decode(raw);
+    // Every load refreshes the voice map Speech consults — the words'
+    // recorded voices follow the stored language wherever it goes
+    // (including a restored backup).
+    VoiceRegistry.update(lexicon);
+    return lexicon;
   }
 
   Future<void> save(Lexicon lexicon) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_key, lexicon.encode());
+    VoiceRegistry.update(lexicon);
   }
 
   /// Adopts one word into the language. Same spelling already there →
@@ -40,6 +48,18 @@ class LexiconStore {
     final next = current.copyWith(
       words: current.words.where((w) => w.word != word).toList(),
     );
+    await save(next);
+    return next;
+  }
+
+  /// Attaches (or, with an empty [voice], removes) the creator's recorded
+  /// voice on one word. Returns the lexicon as stored after the call.
+  Future<Lexicon> setVoice(String word, String voice) async {
+    final current = await load();
+    final next = current.copyWith(words: [
+      for (final w in current.words)
+        w.word == word ? w.copyWith(voice: voice) : w,
+    ]);
     await save(next);
     return next;
   }

@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 
 import 'screens/home_screen.dart';
+import 'services/lexicon_store.dart';
 import 'theme.dart';
 
 void main() {
   runApp(const CreativeAacApp());
+  // Warms the voice registry: adopted words that carry the creator's
+  // recorded voice must sound right from the very first tap, on any
+  // screen, without that screen loading the lexicon itself.
+  LexiconStore().load();
 }
 
 /// Creative Alternative Communication — a calm, autism-friendly tool for

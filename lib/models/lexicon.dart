@@ -11,6 +11,7 @@ class LexiconWord {
     required this.emoji,
     required this.meaning,
     this.origin = '',
+    this.voice = '',
     this.createdAtMs = 0,
   });
 
@@ -28,13 +29,32 @@ class LexiconWord {
   /// Where the word was born (the creation or moment), when known.
   final String origin;
 
+  /// The word in the creator's OWN voice — an audio data URI
+  /// (`data:audio/...;base64,...`), empty when not recorded yet. An
+  /// invented word has no "correct" TTS pronunciation; the sound its
+  /// owner gave it IS the word (HANDOVER 10.9). Lives inline in the
+  /// stored JSON so the full backup carries the voice automatically.
+  final String voice;
+
   final int createdAtMs;
+
+  bool get hasVoice => voice.trim().isNotEmpty;
+
+  LexiconWord copyWith({String? voice}) => LexiconWord(
+        word: word,
+        emoji: emoji,
+        meaning: meaning,
+        origin: origin,
+        voice: voice ?? this.voice,
+        createdAtMs: createdAtMs,
+      );
 
   Map<String, dynamic> toJson() => {
         'word': word,
         'emoji': emoji,
         'meaning': meaning,
         'origin': origin,
+        if (voice.isNotEmpty) 'voice': voice,
         'createdAtMs': createdAtMs,
       };
 
@@ -43,6 +63,7 @@ class LexiconWord {
         emoji: (j['emoji'] ?? '').toString(),
         meaning: (j['meaning'] ?? '').toString(),
         origin: (j['origin'] ?? '').toString(),
+        voice: (j['voice'] ?? '').toString(),
         createdAtMs: j['createdAtMs'] is int ? j['createdAtMs'] as int : 0,
       );
 }
