@@ -27,12 +27,18 @@ abstract class CompanionService {
   /// [sceneSoFar] is the model's own last scene description — for a
   /// picture creation this IS the creation state (the text may be empty),
   /// so it rides back in every turn.
+  /// [declinedOptions] is the session's walked-past list: options that
+  /// were on screen when the user chose "משהו אחר". The model must not
+  /// re-offer them (field feedback 22.9: "משהו אחר" kept returning the
+  /// same things — without this list the model cannot know what "אחר"
+  /// means to leave behind).
   Future<CompanionTurn> turn(
     String userInput, {
     String creationSoFar = '',
     String? creationSummary,
     String? sceneSoFar,
     List<TurnMessage> history = const [],
+    List<String> declinedOptions = const [],
     InputSource source = InputSource.user,
     bool lowEnergy = false,
     String? paceHint,
@@ -76,6 +82,7 @@ class MockCompanionService implements CompanionService {
     String? creationSummary,
     String? sceneSoFar,
     List<TurnMessage> history = const [],
+    List<String> declinedOptions = const [],
     InputSource source = InputSource.user,
     bool lowEnergy = false,
     String? paceHint,

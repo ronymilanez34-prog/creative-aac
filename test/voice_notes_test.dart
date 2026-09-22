@@ -32,7 +32,7 @@ void main() {
 
     test('a stored lexicon with voices survives decode', () {
       const lex = Lexicon(name: 'רוניקית', words: [
-        const LexiconWord(
+        LexiconWord(
             word: 'זומזום',
             emoji: '🐝',
             meaning: 'שמחה',
