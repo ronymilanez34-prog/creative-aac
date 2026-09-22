@@ -144,6 +144,14 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// session's walked-past list. Sent with every turn; the model must not
   /// offer these again (they are what "אחר" asked to leave behind).
   final List<String> _declined = [];
+
+  /// Navigation and rest chips — inputs that carry no content of the
+  /// user's own (rejecting them rejects nothing; painting them paints
+  /// nothing).
+  static const _kNotContent = {
+    'משהו אחר', 'דף חדש', 'רגע של שקט', 'קרא הכל', 'סיימנו', 'עוד',
+    'בואו נמשיך', 'יצירה אחרת לגמרי',
+  };
   DateTime _optionsShownAt = DateTime.now();
 
   bool _busy = false;
@@ -388,16 +396,14 @@ class _CompanionScreenState extends State<CompanionScreen> {
     // exactly WHAT was walked past, for the whole session, so the model
     // can stop bringing the same suggestions back (field feedback 22.9).
     if (t == 'משהו אחר') {
-      // Navigation and rest chips are not content — walking past them
-      // rejects nothing.
-      const notContent = {
-        'דף חדש', 'רגע של שקט', 'קרא הכל', 'סיימנו', 'עוד',
-        'בואו נמשיך', 'יצירה אחרת לגמרי',
-      };
       for (final o in _visibleOptions) {
         final label = o.label.trim();
+        // Style chips are app vocabulary, not content to reject.
+        final isStyle = label == 'סגנון אחר' ||
+            kSceneStyles.any((s) => s.name == label);
         if (label.isNotEmpty &&
-            !notContent.contains(label) &&
+            !isStyle &&
+            !_kNotContent.contains(label) &&
             !_declined.contains(label)) {
           _declined.add(label);
         }
@@ -405,6 +411,18 @@ class _CompanionScreenState extends State<CompanionScreen> {
       // The list rides in the prompt every turn — keep it bounded.
       while (_declined.length > 40) {
         _declined.removeAt(0);
+      }
+    }
+
+    // A style name tapped as a chip IS a style choice — the style
+    // question lives inside the conversation (the model offers the exact
+    // names), not only behind the 🎨 toolbar button a friend won't find.
+    // The picture repaints now; the turn still travels so the model knows.
+    for (final s in kSceneStyles) {
+      if (s.name == t && _sceneStyle != s) {
+        setState(() => _sceneStyle = s);
+        unawaited(_repaintCurrentStyle());
+        break;
       }
     }
 
@@ -528,6 +546,22 @@ class _CompanionScreenState extends State<CompanionScreen> {
         if (ImagineService.available) {
           unawaited(_paintScene(scene, forPage: _currentPage));
         }
+      } else if (allowCreationUpdate &&
+          !next.needsConfirmation &&
+          source == InputSource.user &&
+          _lastScene != null &&
+          _lastScene!.trim().isNotEmpty &&
+          !_kNotContent.contains(input.trim()) &&
+          !kSceneStyles.any((s) => s.name == input.trim()) &&
+          ImagineService.available) {
+        // Safety net (field 22.9: "הוספתי צב על האי והוא לא עלה"): a
+        // content choice in a visual creation must reach the picture even
+        // when the model forgot scene_update. Fold the choice into the
+        // scene locally and repaint; the model's next scene_update
+        // replaces this wording with its own composed one.
+        final folded = '${_lastScene!} נוסף לסצנה: ${input.trim()}.';
+        _lastScene = folded;
+        unawaited(_paintScene(folded, forPage: _currentPage));
       }
     } catch (e) {
       if (!mounted) return;
@@ -558,10 +592,17 @@ class _CompanionScreenState extends State<CompanionScreen> {
       final base = _sceneSnapshots[forPage] ?? _sceneImage;
       final freshPage = _sceneSnapshots[forPage] == null && base != null;
       final style = _sceneStyle == null ? '' : ' סגנון: ${_sceneStyle!.prompt}.';
+      // An edit model left to its own devices returns a near-identical
+      // picture and quietly skips a small addition (the turtle on the
+      // island, 22.9) — say outright that missing things must be added.
       final prompt = freshPage
           ? 'דף חדש בסיפור: צייר סצנה חדשה — $scene. שמור בדיוק על אותן '
               'דמויות כמו בתמונה הקיימת.$style בלי טקסט בתמונה.'
-          : '$scene.$style בלי טקסט בתמונה.';
+          : (base == null
+              ? '$scene.$style בלי טקסט בתמונה.'
+              : 'ערוך את התמונה כך שתתאים בדיוק לתיאור: $scene. '
+                  'הוסף כל דבר מהתיאור שחסר בתמונה, ושמור על מה שכבר '
+                  'נכון.$style בלי טקסט בתמונה.');
       final bytes = await ImagineService().imagine(prompt, baseImage: base);
       if (!mounted) return;
       setState(() {
@@ -693,7 +734,19 @@ class _CompanionScreenState extends State<CompanionScreen> {
     if (picked == null || !mounted) return;
     setState(() => _sceneStyle = picked);
     _speak(picked.name);
-    if (_sceneImage != null && ImagineService.available && _painting) {
+    await _repaintCurrentStyle();
+  }
+
+  /// Repaints the current page's picture in the chosen style — used by the
+  /// toolbar picker AND by a style chip tapped in the conversation (the
+  /// style question lives in the dialogue too, field 22.9: "חבר לא יבין"
+  /// a toolbar button).
+  Future<void> _repaintCurrentStyle() async {
+    final style = _sceneStyle;
+    if (style == null || _sceneImage == null || !ImagineService.available) {
+      return;
+    }
+    if (_painting) {
       // Brush busy — the style change rides the pending queue: the scene
       // repaints (with the new style, via _sceneStyle) right after.
       if (_lastScene != null && _lastScene!.trim().isNotEmpty) {
@@ -702,37 +755,35 @@ class _CompanionScreenState extends State<CompanionScreen> {
       }
       return;
     }
-    if (_sceneImage != null && ImagineService.available) {
-      // Same scene, new look — repaint the current page's picture.
-      setState(() => _painting = true);
-      try {
-        final bytes = await ImagineService().imagine(
-          'אותה סצנה בדיוק, צייר את כל התמונה מחדש בסגנון: ${picked.prompt}. '
-          'בלי טקסט בתמונה.',
-          baseImage: _sceneImage,
-        );
-        if (!mounted) return;
-        setState(() {
-          _painting = false;
-          _sceneImage = bytes;
-          _sceneSnapshots[_currentPage] = bytes;
-          _sceneDirty = true;
-          _paintError = '';
-        });
-      } catch (e) {
-        if (!mounted) return;
-        setState(() {
-          _painting = false;
-          _paintError = 'החלפת הסגנון לא הצליחה ($e) — אפשר לנסות שוב';
-        });
-      }
-      // A scene that queued while the style repainted goes next.
-      if (mounted && _pendingScene != null) {
-        final nextScene = _pendingScene!;
-        final nextPage = _pendingScenePage;
-        _pendingScene = null;
-        await _paintScene(nextScene, forPage: nextPage);
-      }
+    // Same scene, new look — repaint the current page's picture.
+    setState(() => _painting = true);
+    try {
+      final bytes = await ImagineService().imagine(
+        'אותה סצנה בדיוק, צייר את כל התמונה מחדש בסגנון: ${style.prompt}. '
+        'בלי טקסט בתמונה.',
+        baseImage: _sceneImage,
+      );
+      if (!mounted) return;
+      setState(() {
+        _painting = false;
+        _sceneImage = bytes;
+        _sceneSnapshots[_currentPage] = bytes;
+        _sceneDirty = true;
+        _paintError = '';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _painting = false;
+        _paintError = 'החלפת הסגנון לא הצליחה ($e) — אפשר לנסות שוב';
+      });
+    }
+    // A scene that queued while the style repainted goes next.
+    if (mounted && _pendingScene != null) {
+      final nextScene = _pendingScene!;
+      final nextPage = _pendingScenePage;
+      _pendingScene = null;
+      await _paintScene(nextScene, forPage: nextPage);
     }
   }
 
