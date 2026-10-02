@@ -408,6 +408,35 @@ function geminiImage(token, prompt, withRatio, baseImageB64) {
   });
 }
 
+// Vertex meters the image model per minute, and a burst of quick choices
+// trips 429 RESOURCE_EXHAUSTED (field round 2.10: "after a few uses" the
+// picture stopped updating). The limit clears within the minute, so wait it
+// out instead of failing the creator's choice: Retry-After wins when the
+// server sends one; otherwise back off 4s/8s/16s — well inside the 120s
+// function and 90s client timeouts. 503 is the same story (model busy).
+const BUSY_STATUSES = new Set([429, 503]);
+const BUSY_BACKOFF_MS = [4000, 8000, 16000];
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function geminiImageWaitingOutBusy(token, prompt, baseImageB64) {
+  for (let attempt = 0; ; attempt++) {
+    let g = await geminiImage(token, prompt, true, baseImageB64);
+    // If the aspect-ratio config is what's rejected, retry bare.
+    if (g.status === 400) {
+      g = await geminiImage(token, prompt, false, baseImageB64);
+    }
+    if (!BUSY_STATUSES.has(g.status) || attempt >= BUSY_BACKOFF_MS.length) {
+      return g;
+    }
+    const retryAfter = Number(g.headers.get("retry-after"));
+    const waitMs =
+      retryAfter > 0 && retryAfter <= 30
+        ? retryAfter * 1000
+        : BUSY_BACKOFF_MS[attempt];
+    await sleep(waitMs);
+  }
+}
+
 exports.imagineHttp = onRequest(
   { region: REGION, secrets: [APP_KEY], cors: true, timeoutSeconds: 120 },
   async (req, res) => {
@@ -459,19 +488,15 @@ exports.imagineHttp = onRequest(
         }
       }
       // Imagen is closed to this project (and can't edit) — go through the
-      // Gemini image model. If the aspect-ratio config is what's rejected,
-      // retry bare. The model occasionally answers with TEXT ONLY ("sure,
-      // here's a picture..." and no picture) — insist once more before
-      // giving up.
+      // Gemini image model. The model occasionally answers with TEXT ONLY
+      // ("sure, here's a picture..." and no picture) — insist once more
+      // before giving up.
       let g = null;
       let payload = null;
       let part = null;
       let attemptPrompt = prompt;
       for (let attempt = 0; attempt < 2 && !part; attempt++) {
-        g = await geminiImage(token, attemptPrompt, true, baseImageB64);
-        if (g.status === 400) {
-          g = await geminiImage(token, attemptPrompt, false, baseImageB64);
-        }
+        g = await geminiImageWaitingOutBusy(token, attemptPrompt, baseImageB64);
         if (!g.ok) break;
         payload = await g.json();
         part = (payload?.candidates?.[0]?.content?.parts || []).find(
@@ -482,6 +507,16 @@ exports.imagineHttp = onRequest(
       }
       if (!g.ok) {
         const detail = await g.text().catch(() => "");
+        // Still busy after the backoff: say so in the creator's terms and
+        // pass the status through, so the app can give it one more quiet
+        // try instead of reporting a failure.
+        if (BUSY_STATUSES.has(g.status)) {
+          res.status(429).json({
+            error: "מחולל התמונות עמוס כרגע — ננסה שוב בעוד רגע.",
+            detail: detail.slice(0, 500),
+          });
+          return;
+        }
         res.status(500).json({
           error: `מחולל התמונות החזיר שגיאה (${g.status}).`,
           detail: detail.slice(0, 500),
