@@ -14,8 +14,12 @@ class QuickFire {
 /// The fixed quick-fire messages. Order and placement NEVER change — motor
 /// consistency is the point (response efficiency: the communicative act must
 /// be faster than the behaviour it replaces). Fully local: no AI, no network.
+///
+/// "סיימתי" (18.10, Rony's call) replaces "עצור", which did the same as
+/// "הפסקה": it ends the current work — saves the creation and leaves —
+/// in one tap, so finishing never needs the exit question.
 const List<QuickFire> kQuickFires = [
-  QuickFire('✋', 'עצור', 'עצור בבקשה'),
+  QuickFire('✅', 'סיימתי', 'סיימתי'),
   QuickFire('⏸️', 'הפסקה', 'אני צריך הפסקה'),
   QuickFire('🆘', 'עזרה', 'אני צריך עזרה'),
   QuickFire('🤕', 'כואב לי', 'כואב לי'),

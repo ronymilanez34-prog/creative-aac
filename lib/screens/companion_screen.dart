@@ -992,6 +992,10 @@ class _CompanionScreenState extends State<CompanionScreen> {
     // and the whole screen becomes the message, until the user chooses to
     // return. "Too loud" also silences and drops to low-energy first.
     _quickFireTimer?.cancel();
+    if (q.label == 'סיימתי') {
+      unawaited(_finishForNow(q));
+      return;
+    }
     if (q.label == 'חזק מדי') {
       _speech.stop();
       _lowEnergy = true;
@@ -1001,6 +1005,24 @@ class _CompanionScreenState extends State<CompanionScreen> {
     }
     unawaited(_log.logQuickFire(q.label));
     setState(() => _activeQuickFire = q);
+  }
+
+  /// "סיימתי": the creator ends the work — whatever was made is saved to
+  /// "my stories" and the screen leaves, one tap, no question. Nothing is
+  /// lost and nothing is asked; finishing is the creator's own call.
+  Future<void> _finishForNow(QuickFire q) async {
+    _speech.stop();
+    unawaited(_log.logQuickFire(q.label));
+    final hasWork = _creation.isNotEmpty || _sceneSnapshots.isNotEmpty;
+    if (hasWork) {
+      await _saveCreation();
+      if (!mounted) return;
+      _speech.speak('סיימתי. היצירה נשמרה.');
+    } else {
+      _speech.speak(q.spoken);
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop();
   }
 
   void _dismissQuickFire() {
