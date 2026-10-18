@@ -1,4 +1,5 @@
 import 'package:creative_aac/models/companion.dart';
+import 'package:creative_aac/models/story.dart';
 import 'package:creative_aac/services/creation_context.dart';
 import 'package:creative_aac/services/scene_style.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -44,5 +45,30 @@ void main() {
     expect(isQuestionLike('הדג מחייך'), isFalse);
     expect(isQuestionLike('גלים גבוהים'), isFalse);
     expect(isQuestionLike('סגול'), isFalse);
+  });
+
+  test('page_story is parsed and survives withConfirm', () {
+    final t = CompanionTurn.fromJson(const {
+      'say': 'הנה',
+      'page_story': 'על ראש ההר עומד עץ גבוה.',
+    });
+    expect(t.pageStory, 'על ראש ההר עומד עץ גבוה.');
+    expect(t.withConfirm(const ConfirmPrompt(question: 'q', options: ['a']))
+        .pageStory, t.pageStory);
+    expect(CompanionTurn.fromJson(const {'say': 'x'}).pageStory, isNull);
+  });
+
+  test('a story page keeps both layers across save and load', () {
+    const page = StoryPage(
+      text: 'עץ · ציפור',
+      told: 'על ראש ההר עומד עץ, וציפור מגיעה אליו.',
+      emoji: '✨',
+    );
+    final back = StoryPage.fromJson(page.toJson());
+    expect(back.text, page.text);
+    expect(back.told, page.told);
+    expect(back.withoutImage().told, page.told);
+    // Pages from before the layer existed still load.
+    expect(StoryPage.fromJson(const {'text': 'a', 'emoji': 'b'}).told, isNull);
   });
 }

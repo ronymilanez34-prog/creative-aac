@@ -78,6 +78,10 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// base). Saved stories keep one StoryPage per page.
   int _currentPage = 0;
 
+  /// The companion's telling of each page (page_story) — the second layer
+  /// over the creator's own words, shown as the companion's.
+  final Map<int, String> _pageStories = {};
+
   /// Which page each creation piece belongs to (parallel to [_creation]).
   final List<int> _piecePages = [];
 
@@ -231,6 +235,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
             _sceneSnapshots[i] = base64Decode(b64);
           } catch (_) {}
         }
+        final told = p.told?.trim() ?? '';
+        if (told.isNotEmpty) _pageStories[i] = told;
       }
       if (resume.pages.isNotEmpty) _currentPage = resume.pages.length - 1;
       // Nothing is unsaved yet — leaving right away must not ask.
@@ -295,14 +301,37 @@ class _CompanionScreenState extends State<CompanionScreen> {
 
   void _speak(String text) => _speech.speak(text);
 
-  String get _creationText => _creation.map((p) => p.text).join(' ');
+  /// The creator's own words, all pages — what "קרא הכל" reads.
+  String get _creationText => _creation.map((p) => p.text).join('. ');
 
-  /// The sentences of the page being written now — what the creation card
-  /// shows (a page is a few sentences with one picture).
+  /// The creator's words of the page being written now — what the
+  /// creation card shows as THEIRS (a page is their words, the companion's
+  /// telling of them, and one picture).
   String get _currentPageText => [
         for (var i = 0; i < _creation.length; i++)
           if (_piecePages[i] == _currentPage) _creation[i].text,
-      ].join(' ');
+      ].join(' · ');
+
+  /// The creation as the model should see it: per page, the creator's
+  /// words and the companion's telling so far — it continues the telling,
+  /// never restarts it.
+  List<String> get _creationForModel {
+    final out = <String>[];
+    final lastPage = _piecePages.isEmpty
+        ? _currentPage
+        : [_currentPage, ..._piecePages].reduce((a, b) => a > b ? a : b);
+    for (var page = 0; page <= lastPage; page++) {
+      final words = [
+        for (var i = 0; i < _creation.length; i++)
+          if (_piecePages[i] == page) _creation[i].text,
+      ];
+      final told = _pageStories[page] ?? '';
+      if (words.isEmpty && told.isEmpty) continue;
+      out.add('[דף ${page + 1}] המילים שלו: ${words.join(' · ')}'
+          '${told.isEmpty ? '' : '\nסיפרת: $told'}');
+    }
+    return out;
+  }
 
   /// The chips actually on screen right now (low-energy shows only 2) —
   /// the list the log must record, not the full generated set.
@@ -503,10 +532,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
     try {
       // A long creation travels as rolling summary + newest pieces; a
       // short one travels whole (creation_context.dart).
-      final ctx = creationContext(
-        [for (final p in _creation) p.text],
-        _creationSummary,
-      );
+      final ctx = creationContext(_creationForModel, _creationSummary);
       var next = await widget.service.turn(
         input,
         creationSoFar: ctx.creationSoFar,
@@ -525,42 +551,15 @@ class _CompanionScreenState extends State<CompanionScreen> {
 
       final scene = next.sceneUpdate?.trim() ?? '';
       final modelAsksConfirm = next.needsConfirmation;
-      var pieceAdded = false;
+      final modelAdded = next.creationUpdate?.trim().isNotEmpty ?? false;
+      // Two layers (18.10, Rony): the creation is the creator's OWN words,
+      // exactly as chosen — one piece per content choice, in their
+      // wording, never the model's sentence. The model's sentence lives in
+      // the page story (below). A choice counts as content when the model
+      // treated it as one (words or a scene came back); style answers,
+      // navigation, questions and a partner's demo are never a piece.
       if (allowCreationUpdate &&
-          next.creationUpdate != null &&
-          next.creationUpdate!.trim().isNotEmpty) {
-        // Guard against the whole creation coming back as the "update"
-        // (seen live 16.9 — every piece doubled on screen).
-        final piece = extractNewPiece(
-          next.creationUpdate!,
-          [for (final p in _creation) p.text],
-        );
-        if (piece.isNotEmpty) {
-          _creation.add(CreationPiece(
-            text: piece,
-            userInput: input,
-            source: source,
-            questions: next.questions,
-          ));
-          _piecePages.add(_currentPage);
-          _thread.add(_ThreadItem.creation(piece));
-          pieceAdded = true;
-        }
-      }
-      // Safety net (field 18.10: "כלב", "בפארק" — the picture grew, the
-      // creation card stayed "כאן תיבנה היצירה שלך"): in a visual creation
-      // the model sometimes carries the choice into scene_update only. A
-      // content choice of the creator's is still a line of the creation —
-      // and the line is their own words, exactly as chosen (authorship:
-      // nothing is written for them). Style answers and navigation never
-      // become lines.
-      // Only when the model itself confirmed a visual change this turn
-      // (a scene came back) — a turn with neither words nor scene was a
-      // question or a menu ("איזה צבע הדג"), and the creator's tap on it
-      // is not a line (field 18.10: a question ended up in the story).
-      if (!pieceAdded &&
-          allowCreationUpdate &&
-          scene.isNotEmpty &&
+          (modelAdded || scene.isNotEmpty) &&
           !modelAsksConfirm &&
           source == InputSource.user &&
           !_kNotContent.contains(input.trim()) &&
@@ -572,11 +571,15 @@ class _CompanionScreenState extends State<CompanionScreen> {
           text: own,
           userInput: input,
           source: source,
-          questions: const [],
+          questions: next.questions,
         ));
         _piecePages.add(_currentPage);
         _thread.add(_ThreadItem.creation(own));
       }
+      // The companion's telling of this page — replaces the previous
+      // telling of the same page (it is the whole page, retold).
+      final told = next.pageStory?.trim() ?? '';
+      if (told.isNotEmpty) _pageStories[_currentPage] = told;
       // The first picture of a creation with no style chosen: the app asks
       // the style question itself — once, spoken whole, six big choices.
       // The model was told to ask and did not (field 18.10); a question
@@ -905,7 +908,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
       // neither saves nothing.
       if (texts.isEmpty && snapshot == null) continue;
       pages.add(StoryPage(
-        text: texts.join(' '),
+        text: texts.join(' · '),
+        told: _pageStories[page],
         emoji: '✨',
         questions: questions,
         imageB64: snapshot == null
@@ -1117,6 +1121,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
             if (_turn.safeguard) const _SafeguardBanner(),
             _CreationCard(
               text: _currentPageText,
+              story: _pageStories[_currentPage] ?? '',
+              onSpeak: _speak,
               pageNumber: _currentPage > 0 ? _currentPage + 1 : null,
               scroll: _creationScroll,
               image: _sceneSnapshots[_currentPage],
@@ -1223,14 +1229,21 @@ class _CreationCard extends StatelessWidget {
   const _CreationCard({
     required this.text,
     required this.scroll,
+    this.story = '',
+    this.onSpeak,
     this.image,
     this.painting = false,
     this.paintError = '',
     this.pageNumber,
   });
 
+  /// The creator's own words — the creation.
   final String text;
   final ScrollController scroll;
+
+  /// The companion's telling of the page (the second layer), '' if none.
+  final String story;
+  final ValueChanged<String>? onSpeak;
 
   /// Shown small when the creation has more than one page.
   final int? pageNumber;
@@ -1250,8 +1263,9 @@ class _CreationCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.all(12),
       padding: const EdgeInsets.all(16),
-      constraints:
-          BoxConstraints(minHeight: 72, maxHeight: hasImage ? 400 : 150),
+      constraints: BoxConstraints(
+          minHeight: 72,
+          maxHeight: hasImage ? 460 : (story.isEmpty ? 150 : 230)),
       width: double.infinity,
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -1375,14 +1389,54 @@ class _CreationCard extends StatelessWidget {
                   )
                 : SingleChildScrollView(
                     controller: scroll,
-                    child: Text(
-                      text,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        height: 1.5,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.text,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Theirs: big and first.
+                        Text(
+                          text,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            height: 1.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.text,
+                          ),
+                        ),
+                        // The companion's telling: smaller, below, and
+                        // said to be the companion's — never passed off
+                        // as the creator's.
+                        if (story.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              const Text(
+                                'המלווה מספר',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.textSoft,
+                                ),
+                              ),
+                              if (onSpeak != null)
+                                IconButton(
+                                  tooltip: 'לשמוע את הסיפור',
+                                  visualDensity: VisualDensity.compact,
+                                  icon: const Icon(Icons.volume_up_rounded,
+                                      size: 20, color: AppColors.textSoft),
+                                  onPressed: () => onSpeak!(story),
+                                ),
+                            ],
+                          ),
+                          Text(
+                            story,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              height: 1.5,
+                              color: AppColors.textSoft,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
           ),

@@ -32,10 +32,16 @@ class StoryPage {
     required this.emoji,
     this.questions = const [],
     this.imageB64,
+    this.told,
   });
 
+  /// The creator's own words, as chosen (the creation itself).
   final String text;
   final String emoji;
+
+  /// The companion's telling of the page — the story layer over [text].
+  /// Null for pages made before this layer existed.
+  final String? told;
 
   /// Simple comprehension questions about this page, generated at creation
   /// time — the material for the shared re-reading mode (the partner asks,
@@ -52,6 +58,7 @@ class StoryPage {
         'emoji': emoji,
         if (questions.isNotEmpty) 'questions': questions,
         if (imageB64 != null) 'imageB64': imageB64,
+        if (told != null && told!.trim().isNotEmpty) 'told': told,
       };
 
   factory StoryPage.fromJson(Map<String, dynamic> j) => StoryPage(
@@ -62,10 +69,11 @@ class StoryPage {
             .where((s) => s.trim().isNotEmpty)
             .toList(),
         imageB64: j['imageB64'] as String?,
+        told: j['told'] as String?,
       );
 
   StoryPage withoutImage() =>
-      StoryPage(text: text, emoji: emoji, questions: questions);
+      StoryPage(text: text, emoji: emoji, questions: questions, told: told);
 }
 
 class Story {

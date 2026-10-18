@@ -79,6 +79,7 @@ const TURN_SCHEMA = {
     "creation_update",
     "scene_update",
     "creation_summary",
+    "page_story",
     "needs_confirmation",
     "confirm",
     "options",
@@ -104,6 +105,9 @@ const TURN_SCHEMA = {
     creation_update: { type: ["string", "null"] },
     scene_update: { type: ["string", "null"] },
     creation_summary: { type: ["string", "null"] },
+    // The companion's telling of the current page — the second layer over
+    // the creator's own words (see the prompt: "שני רבדים").
+    page_story: { type: ["string", "null"] },
     needs_confirmation: { type: "boolean" },
     confirm: {
       anyOf: [

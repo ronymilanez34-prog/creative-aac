@@ -82,6 +82,7 @@ class CompanionTurn {
     this.safeguard = false,
     this.creationSummary,
     this.wordOffer,
+    this.pageStory,
   });
 
   /// Short warm response — spoken aloud (and the fallback when no symbols).
@@ -130,6 +131,12 @@ class CompanionTurn {
   /// options — never instead of them.
   final WordOffer? wordOffer;
 
+  /// The companion's telling of the current page: one flowing paragraph
+  /// (a song: its lines) built from every word the creator chose on the
+  /// page. The second layer over the creator's own words — shown as the
+  /// companion's, never as theirs. Null on turns without a content choice.
+  final String? pageStory;
+
   /// The same turn with a question the APP decided to ask (the style
   /// question) in place of its options.
   CompanionTurn withConfirm(ConfirmPrompt prompt) => CompanionTurn(
@@ -145,6 +152,7 @@ class CompanionTurn {
         safeguard: safeguard,
         creationSummary: creationSummary,
         wordOffer: wordOffer,
+        pageStory: pageStory,
       );
 
   factory CompanionTurn.fromJson(Map<String, dynamic> j) => CompanionTurn(
@@ -171,6 +179,7 @@ class CompanionTurn {
             .toList(),
         safeguard: j['safeguard'] == true,
         creationSummary: j['creation_summary']?.toString(),
+        pageStory: j['page_story']?.toString(),
         wordOffer: j['word_offer'] is Map<String, dynamic> &&
                 ((j['word_offer'] as Map<String, dynamic>)['word'] ?? '')
                     .toString()

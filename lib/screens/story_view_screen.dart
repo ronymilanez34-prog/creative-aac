@@ -65,10 +65,15 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
     super.dispose();
   }
 
-  void _speakCurrent() => _speech.speak(widget.story.pages[_page].text);
+  /// What a page sounds like: the companion's telling when there is one
+  /// (that is the story to hear), otherwise the creator's words.
+  static String _spokenOf(StoryPage p) =>
+      (p.told?.trim().isNotEmpty ?? false) ? p.told!.trim() : p.text;
+
+  void _speakCurrent() => _speech.speak(_spokenOf(widget.story.pages[_page]));
 
   Future<void> _readWholeStory() async {
-    final all = widget.story.pages.map((p) => p.text).join(' ');
+    final all = widget.story.pages.map(_spokenOf).join(' ');
     await _speech.speak(all);
   }
 
@@ -104,8 +109,11 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
   /// text is copied instead so the button never dead-ends.
   Future<void> _share() async {
     final story = widget.story;
-    final text =
-        '${story.title}\n\n${story.pages.map((p) => p.text).join('\n')}';
+    // Both layers travel, each named for what it is.
+    final text = '${story.title}\n\n${story.pages.map((p) {
+      final told = p.told?.trim() ?? '';
+      return told.isEmpty ? p.text : '${p.text}\n(המלווה מספר: $told)';
+    }).join('\n\n')}';
     try {
       final images = <XFile>[];
       for (var i = 0; i < story.pages.length; i++) {
@@ -217,6 +225,27 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
                           color: AppColors.text,
                         ),
                       ),
+                      if (p.told?.trim().isNotEmpty ?? false) ...[
+                        const SizedBox(height: 14),
+                        const Text(
+                          'המלווה מספר',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textSoft,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          p.told!.trim(),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 19,
+                            height: 1.5,
+                            color: AppColors.textSoft,
+                          ),
+                        ),
+                      ],
                       if (showQuestions) ...[
                         const SizedBox(height: 24),
                         for (final q in p.questions)
