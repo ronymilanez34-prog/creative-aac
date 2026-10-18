@@ -88,6 +88,10 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// telling. Nothing is painted or retold until they decide.
   ({CompanionTurn turn, String scene, String told})? _pendingSceneChange;
 
+  /// Pages on which the app already asked "the page is full — new page?"
+  /// — one ask per page, never a nag.
+  final Set<int> _pageFullAsked = {};
+
   /// Which page each creation piece belongs to (parallel to [_creation]).
   final List<int> _piecePages = [];
 
@@ -614,11 +618,24 @@ class _CompanionScreenState extends State<CompanionScreen> {
           !modelAsksConfirm &&
           hadContent &&
           ImagineService.available;
-      if (sceneChange) {
+      // A page that simply fills up asks the same question — the app
+      // asks, once per page, so turning the page is always offered
+      // (18.10: "he never really offers to move between pages").
+      final piecesOnPage =
+          _piecePages.where((p) => p == _currentPage).length;
+      final pageFull = !sceneChange &&
+          pieceAdded &&
+          scene.isNotEmpty &&
+          !modelAsksConfirm &&
+          piecesOnPage > kPageFullAfter &&
+          !_pageFullAsked.contains(_currentPage) &&
+          ImagineService.available;
+      if (sceneChange || pageFull) {
+        if (pageFull) _pageFullAsked.add(_currentPage);
         _pendingSceneChange = (turn: next, scene: scene, told: told);
-        _applyTurn(next.withConfirm(const ConfirmPrompt(
-          question: kNewPageQuestion,
-          options: [kNewPageYes, kNewPageNo],
+        _applyTurn(next.withConfirm(ConfirmPrompt(
+          question: sceneChange ? kNewPageQuestion : kPageFullQuestion,
+          options: const [kNewPageYes, kNewPageNo],
         )));
         _scrollCreationToEnd();
         return;

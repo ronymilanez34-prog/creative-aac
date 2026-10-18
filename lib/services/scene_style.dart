@@ -45,5 +45,11 @@ List<String> get kStyleQuestionOptions =>
 /// change (a new place or time). The creator decides; the two answers
 /// are app vocabulary, never content.
 const String kNewPageQuestion = 'זה מקום חדש. לפתוח דף חדש?';
+
+/// The same question when a page simply fills up (18.10: "he never
+/// really offers to turn the page") — asked by the app, once per page,
+/// after [kPageFullAfter] choices on it.
+const String kPageFullQuestion = 'הדף הזה מלא. לפתוח דף חדש?';
+const int kPageFullAfter = 5;
 const String kNewPageYes = '📄 דף חדש';
 const String kNewPageNo = 'להמשיך באותו דף';
