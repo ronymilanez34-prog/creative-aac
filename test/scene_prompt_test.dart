@@ -17,9 +17,18 @@ void main() {
       }
     });
 
-    test('no style chosen → no style clause', () {
+    test('no style chosen → the soft-illustration default, never a photo',
+        () {
       final p = scenePaintPrompt('כלב', hasBase: false, freshPage: false);
-      expect(p, isNot(contains('סגנון:')));
+      expect(p, contains('סגנון: $kDefaultSceneStylePrompt.'));
+      expect(kDefaultSceneStylePrompt, contains('לא צילום'));
+    });
+
+    test('a chosen style replaces the default', () {
+      final p = scenePaintPrompt('כלב',
+          hasBase: false, freshPage: false, stylePrompt: 'קומיקס');
+      expect(p, contains('סגנון: קומיקס.'));
+      expect(p, isNot(contains(kDefaultSceneStylePrompt)));
     });
 
     test('a chosen style rides in every variant', () {

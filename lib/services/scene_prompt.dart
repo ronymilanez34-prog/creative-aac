@@ -17,13 +17,22 @@ const String kOnlyWhatWasChosen =
 /// [hasBase]: an existing picture rides along as the edit base.
 /// [freshPage]: a new page — a new composition that keeps the characters of
 /// the previous picture. [stylePrompt]: the chosen style's phrase, or ''.
+/// The look of a picture when no style has been chosen yet. The prompt
+/// asks the model to put this into scene_update, but a model that forgets
+/// hands the generator a bare scene — and the generator's own default is
+/// photorealism (field 18.10: a near-photo dog; 16.9: a photo of a
+/// stranger instead of "אריק"). So the app always says it.
+const String kDefaultSceneStylePrompt =
+    'איור מצויר רך וחם, צבעוני ושליו — לא צילום ריאליסטי';
+
 String scenePaintPrompt(
   String scene, {
   required bool hasBase,
   required bool freshPage,
   String stylePrompt = '',
 }) {
-  final style = stylePrompt.isEmpty ? '' : ' סגנון: $stylePrompt.';
+  final style =
+      ' סגנון: ${stylePrompt.isEmpty ? kDefaultSceneStylePrompt : stylePrompt}.';
   if (freshPage) {
     return 'דף חדש בסיפור: צייר סצנה חדשה — $scene. שמור בדיוק על אותן '
         'דמויות כמו בתמונה הקיימת.$style $kOnlyWhatWasChosen';
