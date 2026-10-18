@@ -10,7 +10,8 @@ library;
 /// background until a place is chosen.
 const String kOnlyWhatWasChosen =
     'צייר רק מה שמתואר: אל תוסיף חפצים, דמויות, מקומות או פעולות שלא '
-    'הוזכרו. אם לא מתואר מקום — רקע פשוט וחלק. בלי טקסט בתמונה.';
+    'הוזכרו. אם לא מתואר מקום — רקע פשוט וחלק. בלי שום כתב בתמונה: '
+    'בלי אותיות, מילים, שמות או מספרים.';
 
 /// The prompt that paints [scene] (the companion's full description).
 ///

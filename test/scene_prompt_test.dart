@@ -13,7 +13,7 @@ void main() {
         expect(p, contains('כלב'));
         expect(p, contains(kOnlyWhatWasChosen));
         expect(p, contains('רקע פשוט'));
-        expect(p, contains('בלי טקסט בתמונה'));
+        expect(p, contains('בלי שום כתב בתמונה'));
       }
     });
 

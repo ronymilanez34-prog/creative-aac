@@ -839,6 +839,12 @@ class _CompanionScreenState extends State<CompanionScreen> {
     unawaited(_paintScene(pending.scene, forPage: _currentPage));
   }
 
+  bool _isTypedSlip(String text) {
+    final t = text.trim();
+    if (t.characters.length >= 2) return false;
+    return !_lexicon.words.any((w) => w.word.trim() == t);
+  }
+
   Future<void> _newPage() async {
     if (!_currentPageHasContent || _busy) return; // page still empty
     setState(() {
@@ -1282,7 +1288,13 @@ class _CompanionScreenState extends State<CompanionScreen> {
                     emoji: index >= 0 && index < options.length
                         ? options[index].emoji
                         : ''),
-                onSubmit: (text) => _send(text, kind: 'text'),
+                // A single typed character is a slip, not a choice —
+                // unless it is a word of their own language, which may
+                // well be one letter («ג» = רוני, 18.10). A slip gets a
+                // calm ask for a word and nothing is sent.
+                onSubmit: (text) => _isTypedSlip(text)
+                    ? _speak('אפשר לכתוב מילה שלמה')
+                    : _send(text, kind: 'text'),
               ),
             QuickBar(onFire: _onQuickFire),
           ],
