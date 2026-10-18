@@ -4,6 +4,10 @@ import 'dart:convert';
 /// docs/ASSESSMENT_TO_PROMPT.md). Owned by the user; edited with a partner
 /// or clinician in partner mode; rendered into the {{PROFILE}} slot of the
 /// companion prompt on every turn. Stored only on this device.
+/// The AI's default name — one syllable, easy to say, says cleanly in the
+/// Hebrew voice, nobody's name in the village. Rony's pick, 18.10.
+const String kDefaultCompanionName = 'פז';
+
 class ScriptEntry {
   const ScriptEntry({required this.expression, required this.meaning});
 
@@ -31,9 +35,18 @@ class UserProfile {
     this.calming = const [],
     this.scripts = const [],
     this.notes = '',
+    this.companionName = '',
   });
 
   final String name;
+
+  /// What the creator calls the AI — one short name, like Siri or Alexa,
+  /// so "מלווה" can mean the human beside them and nothing else (18.10).
+  /// Empty = [kDefaultCompanionName]; the creator may give their own.
+  final String companionName;
+
+  String get effectiveCompanionName =>
+      companionName.trim().isEmpty ? kDefaultCompanionName : companionName.trim();
 
   /// Communication level / register in the partner's words
   /// (e.g. "מילים בודדות וסמלים", "משפטים מלאים, בלי שפה ילדותית").
@@ -92,6 +105,7 @@ class UserProfile {
         'calming': calming,
         'scripts': scripts.map((s) => s.toJson()).toList(),
         'notes': notes,
+        if (companionName.trim().isNotEmpty) 'companionName': companionName,
       };
 
   factory UserProfile.fromJson(Map<String, dynamic> j) => UserProfile(
@@ -105,6 +119,7 @@ class UserProfile {
             .map(ScriptEntry.fromJson)
             .toList(),
         notes: (j['notes'] ?? '').toString(),
+        companionName: (j['companionName'] ?? '').toString(),
       );
 
   static List<String> _strings(Object? v) => (v as List? ?? const [])

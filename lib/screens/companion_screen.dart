@@ -6,11 +6,13 @@ import 'package:flutter/material.dart';
 
 import '../models/board.dart';
 import '../models/companion.dart';
+import '../models/profile.dart';
 import '../models/lexicon.dart';
 import '../models/story.dart';
 import '../services/board_store.dart';
 import '../services/chip_layout.dart';
 import '../services/lexicon_store.dart';
+import '../services/profile_store.dart';
 import '../services/companion_service.dart';
 import '../services/creation_context.dart';
 import '../services/creation_image.dart';
@@ -198,6 +200,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
   QuickFire? _activeQuickFire;
   Timer? _quickFireTimer;
 
+  /// What the creator calls the AI (profile; default "פז").
+  String _companionName = kDefaultCompanionName;
+
   /// The shared invented language — loaded for the adoption card (its name)
   /// and updated live when a word is adopted mid-session.
   Lexicon _lexicon = const Lexicon();
@@ -279,6 +284,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
     _optionsShownAt = DateTime.now();
     BoardStore().load().then((words) {
       if (mounted && words.isNotEmpty) setState(() => _boardWords = words);
+    });
+    ProfileStore().load().then((p) {
+      if (mounted) setState(() => _companionName = p.effectiveCompanionName);
     });
     LexiconStore().load().then((lex) {
       if (mounted) setState(() => _lexicon = lex);
@@ -1223,6 +1231,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
             _CreationCard(
               text: _currentPageText,
               story: _pageStories[_currentPage] ?? '',
+              storyLabel: '$_companionName מספר',
               onSpeak: _speak,
               pageNumber: _currentPage > 0 ? _currentPage + 1 : null,
               scroll: _creationScroll,
@@ -1337,6 +1346,7 @@ class _CreationCard extends StatelessWidget {
     required this.text,
     required this.scroll,
     this.story = '',
+    this.storyLabel = 'פז מספר',
     this.onSpeak,
     this.image,
     this.painting = false,
@@ -1350,6 +1360,7 @@ class _CreationCard extends StatelessWidget {
 
   /// The companion's telling of the page (the second layer), '' if none.
   final String story;
+  final String storyLabel;
   final ValueChanged<String>? onSpeak;
 
   /// Shown small when the creation has more than one page.
@@ -1516,9 +1527,9 @@ class _CreationCard extends StatelessWidget {
                           const SizedBox(height: 10),
                           Row(
                             children: [
-                              const Text(
-                                'המלווה מספר',
-                                style: TextStyle(
+                              Text(
+                                storyLabel,
+                                style: const TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                   color: AppColors.textSoft,
@@ -1712,7 +1723,7 @@ class _CompanionBubble extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('🤖', style: TextStyle(fontSize: 30)),
+          const Text('🖌️', style: TextStyle(fontSize: 30)),
           const SizedBox(width: 8),
           // Flexible, not Expanded: the bubble hugs its words. A short
           // symbol strip inside a full-width bubble read as "half-empty"

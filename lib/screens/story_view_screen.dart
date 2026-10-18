@@ -5,11 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../models/profile.dart';
 import '../models/story.dart';
 import '../services/hebrew_text.dart';
 import '../services/page_card.dart';
 import '../services/companion_factory.dart';
 import '../services/interaction_log.dart';
+import '../services/profile_store.dart';
 import '../services/speech.dart';
 import '../services/story_store.dart';
 import '../theme.dart';
@@ -31,6 +33,15 @@ class StoryViewScreen extends StatefulWidget {
 class _StoryViewScreenState extends State<StoryViewScreen> {
   final PageController _controller = PageController();
   final Speech _speech = Speech();
+  String _companionName = kDefaultCompanionName;
+
+  @override
+  void initState() {
+    super.initState();
+    ProfileStore().load().then((p) {
+      if (mounted) setState(() => _companionName = p.effectiveCompanionName);
+    });
+  }
   final StoryStore _store = StoryStore();
   int _page = 0;
   bool _saved = false;
@@ -116,7 +127,7 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
       final told = p.told?.trim() ?? '';
       return told.isEmpty
           ? p.text
-          : '${p.text}\n(המלווה מספר: ${stripNikud(told)})';
+          : '${p.text}\n($_companionName מספר: ${stripNikud(told)})';
     }).join('\n\n')}';
     try {
       // One picture per page, with the words INSIDE it — WhatsApp drops
@@ -129,6 +140,7 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
           picture: _pageImage(i),
           words: p.text,
           told: p.told,
+          storyLabel: '$_companionName מספר',
           title: i == 0 ? story.title : null,
           pageNumber: story.pages.length > 1 ? i + 1 : null,
           pageCount: story.pages.length > 1 ? story.pages.length : null,
@@ -242,9 +254,9 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
                       ),
                       if (p.told?.trim().isNotEmpty ?? false) ...[
                         const SizedBox(height: 14),
-                        const Text(
-                          'המלווה מספר',
-                          style: TextStyle(
+                        Text(
+                          '$_companionName מספר',
+                          style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
                             color: AppColors.textSoft,

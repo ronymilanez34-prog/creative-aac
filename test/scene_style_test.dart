@@ -1,4 +1,5 @@
 import 'package:creative_aac/models/companion.dart';
+import 'package:creative_aac/models/profile.dart';
 import 'package:creative_aac/models/story.dart';
 import 'package:creative_aac/services/creation_context.dart';
 import 'package:creative_aac/services/scene_style.dart';
@@ -80,5 +81,15 @@ void main() {
     expect(t.withConfirm(const ConfirmPrompt(question: 'q', options: ['a']))
         .sceneChange, isTrue);
     expect(styleFromLabel(kNewPageYes), isNull);
+  });
+
+  test('the AI has a name: the default, or the creator\'s own', () {
+    expect(UserProfile().effectiveCompanionName, kDefaultCompanionName);
+    expect(UserProfile(companionName: ' טוטו ').effectiveCompanionName,
+        'טוטו');
+    final back = UserProfile.fromJson(
+        UserProfile(name: 'דני', companionName: 'לולי').toJson());
+    expect(back.companionName, 'לולי');
+    expect(UserProfile.fromJson(const {'name': 'דני'}).companionName, '');
   });
 }

@@ -14,6 +14,7 @@ Future<Uint8List?> renderPageCard({
   Uint8List? picture,
   required String words,
   String? told,
+  String storyLabel = 'פז מספר',
   String? title,
   int? pageNumber,
   int? pageCount,
@@ -64,7 +65,7 @@ Future<Uint8List?> renderPageCard({
   final wordsP =
       hasWords ? paragraph(wordsText, 46, ink, weight: ui.FontWeight.w700) : null;
   final labelP = hasTold
-      ? paragraph('המלווה מספר', 26, accent, weight: ui.FontWeight.w700)
+      ? paragraph(storyLabel, 26, accent, weight: ui.FontWeight.w700)
       : null;
   final toldP = hasTold ? paragraph(toldText, 34, soft) : null;
   final footP = pageNumber == null

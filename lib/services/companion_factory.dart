@@ -15,6 +15,10 @@ Future<CompanionService> buildCompanionService() async {
   final boardWords = await BoardStore().load();
   final lexicon = await LexiconStore().load();
   var promptText = profile.toPromptText();
+  // The AI's name rides with the profile every session — it knows what
+  // it is called, and never calls itself "מלווה" (that is the human).
+  promptText =
+      'השם שלך בשיחה: ${profile.effectiveCompanionName}.\n$promptText'.trim();
   if (!lexicon.isEmpty) {
     // The shared invented language: adopted words are real words of both
     // sides — the model must speak them (a word adopted mid-session reaches

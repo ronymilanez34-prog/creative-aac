@@ -35,6 +35,7 @@ class _PartnerScreenState extends State<PartnerScreen> {
   final _triggers = TextEditingController();
   final _calming = TextEditingController();
   final _notes = TextEditingController();
+  final _companionName = TextEditingController();
   List<ScriptEntry> _scripts = [];
 
   bool _loaded = false;
@@ -75,6 +76,7 @@ class _PartnerScreenState extends State<PartnerScreen> {
       _triggers.text = p.triggers.join(', ');
       _calming.text = p.calming.join(', ');
       _notes.text = p.notes;
+      _companionName.text = p.companionName;
       _scripts = List.of(p.scripts);
       _loaded = true;
     });
@@ -88,6 +90,7 @@ class _PartnerScreenState extends State<PartnerScreen> {
     _triggers.dispose();
     _calming.dispose();
     _notes.dispose();
+    _companionName.dispose();
     super.dispose();
   }
 
@@ -106,6 +109,7 @@ class _PartnerScreenState extends State<PartnerScreen> {
       calming: _split(_calming.text),
       scripts: _scripts,
       notes: _notes.text.trim(),
+      companionName: _companionName.text.trim(),
     );
     await _store.save(profile);
     if (!mounted) return;
@@ -358,6 +362,10 @@ class _PartnerScreenState extends State<PartnerScreen> {
                   ),
                   const SizedBox(height: 12),
                   _Field(controller: _name, label: 'שם'),
+                  _Field(
+                    controller: _companionName,
+                    label: 'איך קוראים ל-AI (ריק = $kDefaultCompanionName)',
+                  ),
                   _Field(
                     controller: _level,
                     label: 'משלב ורמה (למשל: מילים בודדות וסמלים)',
