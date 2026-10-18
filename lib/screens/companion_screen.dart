@@ -16,6 +16,7 @@ import '../services/creation_context.dart';
 import '../services/creation_image.dart';
 import '../services/imagine_service.dart';
 import '../services/interaction_log.dart';
+import '../services/scene_prompt.dart';
 import '../services/scene_style.dart';
 import '../services/speech.dart';
 import '../services/story_store.dart';
@@ -591,18 +592,14 @@ class _CompanionScreenState extends State<CompanionScreen> {
       // keeps the same characters (the "same character, new page" ask).
       final base = _sceneSnapshots[forPage] ?? _sceneImage;
       final freshPage = _sceneSnapshots[forPage] == null && base != null;
-      final style = _sceneStyle == null ? '' : ' סגנון: ${_sceneStyle!.prompt}.';
-      // An edit model left to its own devices returns a near-identical
-      // picture and quietly skips a small addition (the turtle on the
-      // island, 22.9) — say outright that missing things must be added.
-      final prompt = freshPage
-          ? 'דף חדש בסיפור: צייר סצנה חדשה — $scene. שמור בדיוק על אותן '
-              'דמויות כמו בתמונה הקיימת.$style בלי טקסט בתמונה.'
-          : (base == null
-              ? '$scene.$style בלי טקסט בתמונה.'
-              : 'ערוך את התמונה כך שתתאים בדיוק לתיאור: $scene. '
-                  'הוסף כל דבר מהתיאור שחסר בתמונה, ושמור על מה שכבר '
-                  'נכון.$style בלי טקסט בתמונה.');
+      // One wording for every paint (scene_prompt.dart): the scene, the
+      // style, and the rule that nothing the creator didn't choose gets in.
+      final prompt = scenePaintPrompt(
+        scene,
+        hasBase: base != null,
+        freshPage: freshPage,
+        stylePrompt: _sceneStyle?.prompt ?? '',
+      );
       final bytes = await ImagineService().imagine(prompt, baseImage: base);
       if (!mounted) return;
       setState(() {
