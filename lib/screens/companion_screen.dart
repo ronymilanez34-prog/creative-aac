@@ -133,6 +133,11 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// under the picture, cleared by the next successful paint.
   String _paintError = '';
 
+  /// Set while the painter waits out a rate limit (429) before one more
+  /// quiet try, so a limit that holds is reported rather than retried
+  /// forever. Cleared by the next successful paint.
+  bool _waitedOutBusyPainter = false;
+
   /// The visible conversation — the user's choices, the companion's
   /// replies, and each piece added to the creation. A choice that vanishes
   /// on tap leaves no sense of dialogue or authorship; the thread is where
@@ -655,15 +660,36 @@ class _CompanionScreenState extends State<CompanionScreen> {
         _sceneSnapshots[forPage] = bytes;
         _sceneDirty = true;
         _paintError = '';
+        _waitedOutBusyPainter = false;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _painting = false;
-        // Visible, calm, and specific enough for a screenshot to tell us
-        // what failed — a swallowed error looks like "it just ignores me".
-        _paintError = 'הציור לא הצליח הפעם ($e) — הבחירה הבאה תנסה שוב';
-      });
+      final busy = e is ImagineException && e.isBusy;
+      if (busy && !_waitedOutBusyPainter) {
+        // The image model is rate-limited per minute (field round 2.10:
+        // "after a few uses"). The server already backed off once; wait
+        // here too and try the same scene again, once. The brush stays
+        // "busy" meanwhile so a newer choice queues and wins — the retry
+        // then paints whatever is newest, never an older scene over it.
+        _waitedOutBusyPainter = true;
+        setState(() {
+          _paintError = 'המחולל עמוס רגע — מנסים שוב בעוד כמה שניות';
+        });
+        if (_pendingScene == null) {
+          _pendingScene = scene;
+          _pendingScenePage = forPage;
+        }
+        await Future<void>.delayed(const Duration(seconds: 20));
+        if (!mounted) return;
+        setState(() => _painting = false);
+      } else {
+        setState(() {
+          _painting = false;
+          // Visible, calm, and specific enough for a screenshot to tell us
+          // what failed — a swallowed error looks like "it just ignores me".
+          _paintError = 'הציור לא הצליח הפעם ($e) — הבחירה הבאה תנסה שוב';
+        });
+      }
     }
     // Whatever queued while the brush was busy paints now, on the fresh
     // base — so nothing the creator chose goes missing from the picture.

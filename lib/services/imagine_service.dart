@@ -46,7 +46,7 @@ class ImagineService {
           }
         }
       } catch (_) {}
-      throw ImagineException(message);
+      throw ImagineException(message, status: res.statusCode);
     }
     final body = jsonDecode(utf8.decode(res.bodyBytes));
     final b64 = (body is Map ? body['imageB64'] : null)?.toString();
@@ -58,9 +58,15 @@ class ImagineService {
 }
 
 class ImagineException implements Exception {
-  ImagineException(this.message);
+  ImagineException(this.message, {this.status = 0});
 
   final String message;
+
+  /// HTTP status from the backend (0 when the request never got an
+  /// answer). 429 means the image model is rate-limited, not broken.
+  final int status;
+
+  bool get isBusy => status == 429;
 
   @override
   String toString() => message;
