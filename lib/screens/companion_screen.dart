@@ -517,6 +517,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
       final refreshed = next.creationSummary?.trim() ?? '';
       if (refreshed.isNotEmpty) _creationSummary = refreshed;
 
+      final scene = next.sceneUpdate?.trim() ?? '';
+      final modelAsksConfirm = next.needsConfirmation;
+      var pieceAdded = false;
       if (allowCreationUpdate &&
           next.creationUpdate != null &&
           next.creationUpdate!.trim().isNotEmpty) {
@@ -535,9 +538,36 @@ class _CompanionScreenState extends State<CompanionScreen> {
           ));
           _piecePages.add(_currentPage);
           _thread.add(_ThreadItem.creation(piece));
+          pieceAdded = true;
         }
       }
-      final scene = next.sceneUpdate?.trim() ?? '';
+      // Safety net (field 18.10: "כלב", "בפארק" — the picture grew, the
+      // creation card stayed "כאן תיבנה היצירה שלך"): in a visual creation
+      // the model sometimes carries the choice into scene_update only. A
+      // content choice of the creator's is still a line of the creation —
+      // and the line is their own words, exactly as chosen (authorship:
+      // nothing is written for them). Style answers and navigation never
+      // become lines.
+      final visual = scene.isNotEmpty ||
+          (_lastScene != null && _lastScene!.trim().isNotEmpty);
+      if (!pieceAdded &&
+          allowCreationUpdate &&
+          visual &&
+          !modelAsksConfirm &&
+          source == InputSource.user &&
+          !_kNotContent.contains(input.trim()) &&
+          styleFromLabel(input) == null &&
+          input.trim().isNotEmpty) {
+        final own = input.trim();
+        _creation.add(CreationPiece(
+          text: own,
+          userInput: input,
+          source: source,
+          questions: const [],
+        ));
+        _piecePages.add(_currentPage);
+        _thread.add(_ThreadItem.creation(own));
+      }
       // The first picture of a creation with no style chosen: the app asks
       // the style question itself — once, spoken whole, six big choices.
       // The model was told to ask and did not (field 18.10); a question

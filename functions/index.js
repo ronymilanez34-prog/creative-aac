@@ -38,6 +38,7 @@
 
 const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
+const logger = require("firebase-functions/logger");
 
 const { buildSystemPrompt } = require("./companion_prompt");
 
@@ -329,10 +330,25 @@ exports.companionTurnHttp = onRequest(
       res.status(401).json({ error: "מפתח אפליקציה חסר או שגוי (x-app-key)." });
       return;
     }
+    const t0 = Date.now();
     try {
       const turn = await runCompanionTurn(req.body);
+      // Shape and timing only — never the words (the creation is the
+      // creator's). Enough to answer "did the model send words/a scene,
+      // and how long did it take?" without guessing (field 18.10).
+      logger.info("companion turn", {
+        ms: Date.now() - t0,
+        inputChars: String((req.body || {}).userInput || "").length,
+        historyTurns: Array.isArray((req.body || {}).history) ? req.body.history.length : 0,
+        hasScene: !!(req.body || {}).sceneSoFar,
+        creationUpdate: typeof turn.creation_update === "string" && turn.creation_update.trim() !== "",
+        sceneUpdateChars: typeof turn.scene_update === "string" ? turn.scene_update.length : 0,
+        needsConfirmation: turn.needs_confirmation === true,
+        options: Array.isArray(turn.options) ? turn.options.length : 0,
+      });
       res.status(200).json(turn);
     } catch (err) {
+      logger.warn("companion turn failed", { ms: Date.now() - t0, error: err.message || String(err) });
       const status = err instanceof HttpsError && err.code === "invalid-argument" ? 400 : 500;
       // The upstream detail travels to the screen (truncated): remote
       // debugging with non-technical testers depends on the error SAYING
@@ -428,6 +444,15 @@ exports.imagineHttp = onRequest(
     // Gemini capability, so its presence skips the Imagen attempt.
     let baseImageB64 = String((req.body || {}).baseImageB64 || "").trim();
     if (baseImageB64.length > 11_000_000) baseImageB64 = "";
+    const t0 = Date.now();
+    // Timing and sizes only — never the scene itself.
+    const done = (how) =>
+      logger.info("imagine", {
+        ms: Date.now() - t0,
+        how,
+        promptChars: prompt.length,
+        baseImageChars: baseImageB64.length,
+      });
     try {
       const token = await serviceAccessToken();
       if (!baseImageB64) {
@@ -454,6 +479,7 @@ exports.imagineHttp = onRequest(
             res.status(500).json({ error: "לא התקבלה תמונה מהמחולל." });
             return;
           }
+          done("imagen");
           res.status(200).json({ imageB64: b64 });
           return;
         }
@@ -482,6 +508,7 @@ exports.imagineHttp = onRequest(
       }
       if (!g.ok) {
         const detail = await g.text().catch(() => "");
+        done(`gemini-error-${g.status}`);
         res.status(500).json({
           error: `מחולל התמונות החזיר שגיאה (${g.status}).`,
           detail: detail.slice(0, 500),
@@ -489,14 +516,17 @@ exports.imagineHttp = onRequest(
         return;
       }
       if (!part) {
+        done("gemini-no-image");
         res.status(500).json({
           error: "לא התקבלה תמונה מהמחולל.",
           detail: JSON.stringify(payload).slice(0, 300),
         });
         return;
       }
+      done("gemini");
       res.status(200).json({ imageB64: part.inlineData.data });
     } catch (err) {
+      done("exception");
       res.status(500).json({ error: `שגיאה ביצירת התמונה: ${String(err)}` });
     }
   }
