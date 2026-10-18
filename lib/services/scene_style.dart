@@ -21,3 +21,22 @@ const kSceneStyles = [
   SceneStyle('🌊', 'צבעי מים', 'ציור עדין ורגוע בצבעי מים'),
   SceneStyle('👾', 'משחק', 'פיקסל ארט צבעוני של משחק מחשב'),
 ];
+
+/// The style a tapped label names, or null when the label is content.
+/// Accepts the bare name and the emoji-prefixed form the style question
+/// shows ("🎨 ציור רך") — one vocabulary wherever a style is chosen.
+SceneStyle? styleFromLabel(String label) {
+  final t = label.trim();
+  for (final s in kSceneStyles) {
+    if (t == s.name || t == '${s.emoji} ${s.name}') return s;
+  }
+  return null;
+}
+
+/// The one style question the app asks itself, once per creation, right
+/// after the first picture — spoken whole, six big choices (field 18.10:
+/// the model was told to ask and never did; a question the app asks is
+/// predictable).
+const String kStyleQuestion = 'באיזה סגנון נצייר?';
+List<String> get kStyleQuestionOptions =>
+    [for (final s in kSceneStyles) '${s.emoji} ${s.name}'];

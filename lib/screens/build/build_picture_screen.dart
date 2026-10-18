@@ -7,12 +7,14 @@ import 'package:flutter/material.dart';
 import '../../models/board.dart';
 import '../../models/story.dart';
 import '../../services/board_store.dart';
+import '../../services/scene_prompt.dart';
 import '../../services/creation_image.dart';
 import '../../services/imagine_service.dart';
 import '../../services/speech.dart';
 import '../../services/story_store.dart';
 import '../../theme.dart';
 import '../../widgets/big_button.dart';
+import '../../widgets/painter_wait.dart';
 import '../../widgets/board_composer.dart';
 
 /// Building a PICTURE together — creation you can see. Choose a background,
@@ -274,7 +276,7 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
     final names = _placed.map(_placeDesc).join(', ');
     return '${_style.prompt}: '
         'סצנה ב${_bg!.name}${names.isEmpty ? '' : ', ובה $names'}. '
-        'מקם כל דבר לפי התיאור שלו. בלי טקסט בתמונה.';
+        'מקם כל דבר לפי התיאור שלו. $kOnlyWhatWasChosen';
   }
 
   /// Things added since the picture was painted (multiset diff by label).
@@ -303,7 +305,7 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
                 'הוסף לתמונה: ${added.map(_placeDesc).join(', ')}.',
               if (restyle) 'צייר את כל התמונה מחדש בסגנון ${_style.prompt}.',
               if (!restyle) 'שמור על שאר התמונה בדיוק כפי שהיא.',
-              'בלי טקסט בתמונה.',
+              kOnlyWhatWasChosen,
             ].join(' ')
           : _scenePrompt;
       final bytes = await ImagineService()
@@ -336,7 +338,7 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
     setState(() => _imagining = true);
     try {
       final bytes = await ImagineService().imagine(
-        '$t. שמור על שאר התמונה כפי שהיא. בלי טקסט בתמונה.',
+        '$t. שמור על שאר התמונה כפי שהיא. $kOnlyWhatWasChosen',
         baseImage: _realImage,
       );
       if (!mounted) return;
@@ -658,7 +660,9 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
                             child: const Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                CircularProgressIndicator(
+                                PainterWait(
+                                    width: 120,
+                                    height: 72,
                                     color: Colors.white),
                                 SizedBox(height: 12),
                                 Text(

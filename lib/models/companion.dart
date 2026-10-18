@@ -130,6 +130,23 @@ class CompanionTurn {
   /// options — never instead of them.
   final WordOffer? wordOffer;
 
+  /// The same turn with a question the APP decided to ask (the style
+  /// question) in place of its options.
+  CompanionTurn withConfirm(ConfirmPrompt prompt) => CompanionTurn(
+        say: say,
+        saySymbols: saySymbols,
+        creationUpdate: creationUpdate,
+        sceneUpdate: sceneUpdate,
+        needsConfirmation: true,
+        confirm: prompt,
+        options: options,
+        partnerTip: partnerTip,
+        questions: questions,
+        safeguard: safeguard,
+        creationSummary: creationSummary,
+        wordOffer: wordOffer,
+      );
+
   factory CompanionTurn.fromJson(Map<String, dynamic> j) => CompanionTurn(
         say: (j['say'] ?? '').toString(),
         saySymbols: (j['say_symbols'] as List? ?? const [])

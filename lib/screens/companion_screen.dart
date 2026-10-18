@@ -16,11 +16,13 @@ import '../services/creation_context.dart';
 import '../services/creation_image.dart';
 import '../services/imagine_service.dart';
 import '../services/interaction_log.dart';
+import '../services/scene_prompt.dart';
 import '../services/scene_style.dart';
 import '../services/speech.dart';
 import '../services/story_store.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
+import '../widgets/painter_wait.dart';
 import '../widgets/board_composer.dart';
 import '../widgets/full_image_view.dart';
 import '../widgets/quick_bar.dart';
@@ -85,6 +87,10 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// The picture style the creator picked (palette button); null = the
   /// model's default (soft warm illustration, per the prompt).
   SceneStyle? _sceneStyle;
+
+  /// The style question is asked by the app itself, once per creation,
+  /// when the first picture arrives with no style chosen.
+  bool _styleAsked = false;
 
   /// The model's last scene description — sent back every turn, because
   /// for a picture creation this IS the creation state (the text can be
@@ -399,8 +405,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
       for (final o in _visibleOptions) {
         final label = o.label.trim();
         // Style chips are app vocabulary, not content to reject.
-        final isStyle = label == 'סגנון אחר' ||
-            kSceneStyles.any((s) => s.name == label);
+        final isStyle = label == 'סגנון אחר' || styleFromLabel(label) != null;
         if (label.isNotEmpty &&
             !isStyle &&
             !_kNotContent.contains(label) &&
@@ -418,12 +423,10 @@ class _CompanionScreenState extends State<CompanionScreen> {
     // question lives inside the conversation (the model offers the exact
     // names), not only behind the 🎨 toolbar button a friend won't find.
     // The picture repaints now; the turn still travels so the model knows.
-    for (final s in kSceneStyles) {
-      if (s.name == t && _sceneStyle != s) {
-        setState(() => _sceneStyle = s);
-        unawaited(_repaintCurrentStyle());
-        break;
-      }
+    final pickedStyle = styleFromLabel(t);
+    if (pickedStyle != null && _sceneStyle != pickedStyle) {
+      setState(() => _sceneStyle = pickedStyle);
+      unawaited(_repaintCurrentStyle());
     }
 
     setState(() => _partnerArmed = false);
@@ -499,7 +502,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
         [for (final p in _creation) p.text],
         _creationSummary,
       );
-      final next = await widget.service.turn(
+      var next = await widget.service.turn(
         input,
         creationSoFar: ctx.creationSoFar,
         creationSummary: ctx.creationSummary,
@@ -515,6 +518,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
       final refreshed = next.creationSummary?.trim() ?? '';
       if (refreshed.isNotEmpty) _creationSummary = refreshed;
 
+      final scene = next.sceneUpdate?.trim() ?? '';
+      final modelAsksConfirm = next.needsConfirmation;
+      var pieceAdded = false;
       if (allowCreationUpdate &&
           next.creationUpdate != null &&
           next.creationUpdate!.trim().isNotEmpty) {
@@ -533,14 +539,56 @@ class _CompanionScreenState extends State<CompanionScreen> {
           ));
           _piecePages.add(_currentPage);
           _thread.add(_ThreadItem.creation(piece));
+          pieceAdded = true;
         }
+      }
+      // Safety net (field 18.10: "כלב", "בפארק" — the picture grew, the
+      // creation card stayed "כאן תיבנה היצירה שלך"): in a visual creation
+      // the model sometimes carries the choice into scene_update only. A
+      // content choice of the creator's is still a line of the creation —
+      // and the line is their own words, exactly as chosen (authorship:
+      // nothing is written for them). Style answers and navigation never
+      // become lines.
+      final visual = scene.isNotEmpty ||
+          (_lastScene != null && _lastScene!.trim().isNotEmpty);
+      if (!pieceAdded &&
+          allowCreationUpdate &&
+          visual &&
+          !modelAsksConfirm &&
+          source == InputSource.user &&
+          !_kNotContent.contains(input.trim()) &&
+          styleFromLabel(input) == null &&
+          input.trim().isNotEmpty) {
+        final own = input.trim();
+        _creation.add(CreationPiece(
+          text: own,
+          userInput: input,
+          source: source,
+          questions: const [],
+        ));
+        _piecePages.add(_currentPage);
+        _thread.add(_ThreadItem.creation(own));
+      }
+      // The first picture of a creation with no style chosen: the app asks
+      // the style question itself — once, spoken whole, six big choices.
+      // The model was told to ask and did not (field 18.10); a question
+      // the app asks always comes, always the same way.
+      if (scene.isNotEmpty &&
+          _sceneStyle == null &&
+          !_styleAsked &&
+          !next.needsConfirmation &&
+          ImagineService.available) {
+        _styleAsked = true;
+        next = next.withConfirm(ConfirmPrompt(
+          question: kStyleQuestion,
+          options: kStyleQuestionOptions,
+        ));
       }
       _applyTurn(next);
       _scrollCreationToEnd();
       // A visual creation paints itself as it grows — quietly, in the
       // background; the words never wait for the painter. The finished
       // picture becomes the CURRENT PAGE's picture.
-      final scene = next.sceneUpdate?.trim() ?? '';
       if (scene.isNotEmpty) {
         _lastScene = scene;
         if (ImagineService.available) {
@@ -552,7 +600,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
           _lastScene != null &&
           _lastScene!.trim().isNotEmpty &&
           !_kNotContent.contains(input.trim()) &&
-          !kSceneStyles.any((s) => s.name == input.trim()) &&
+          styleFromLabel(input) == null &&
           ImagineService.available) {
         // Safety net (field 22.9: "הוספתי צב על האי והוא לא עלה"): a
         // content choice in a visual creation must reach the picture even
@@ -591,18 +639,14 @@ class _CompanionScreenState extends State<CompanionScreen> {
       // keeps the same characters (the "same character, new page" ask).
       final base = _sceneSnapshots[forPage] ?? _sceneImage;
       final freshPage = _sceneSnapshots[forPage] == null && base != null;
-      final style = _sceneStyle == null ? '' : ' סגנון: ${_sceneStyle!.prompt}.';
-      // An edit model left to its own devices returns a near-identical
-      // picture and quietly skips a small addition (the turtle on the
-      // island, 22.9) — say outright that missing things must be added.
-      final prompt = freshPage
-          ? 'דף חדש בסיפור: צייר סצנה חדשה — $scene. שמור בדיוק על אותן '
-              'דמויות כמו בתמונה הקיימת.$style בלי טקסט בתמונה.'
-          : (base == null
-              ? '$scene.$style בלי טקסט בתמונה.'
-              : 'ערוך את התמונה כך שתתאים בדיוק לתיאור: $scene. '
-                  'הוסף כל דבר מהתיאור שחסר בתמונה, ושמור על מה שכבר '
-                  'נכון.$style בלי טקסט בתמונה.');
+      // One wording for every paint (scene_prompt.dart): the scene, the
+      // style, and the rule that nothing the creator didn't choose gets in.
+      final prompt = scenePaintPrompt(
+        scene,
+        hasBase: base != null,
+        freshPage: freshPage,
+        stylePrompt: _sceneStyle?.prompt ?? '',
+      );
       final bytes = await ImagineService().imagine(prompt, baseImage: base);
       if (!mounted) return;
       setState(() {
@@ -743,18 +787,18 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// a toolbar button).
   Future<void> _repaintCurrentStyle() async {
     final style = _sceneStyle;
-    if (style == null || _sceneImage == null || !ImagineService.available) {
-      return;
-    }
+    if (style == null || !ImagineService.available) return;
     if (_painting) {
-      // Brush busy — the style change rides the pending queue: the scene
-      // repaints (with the new style, via _sceneStyle) right after.
+      // Brush busy (including the very first picture, still on its way
+      // when the style question is answered) — the style change rides the
+      // pending queue: the scene repaints with the new style right after.
       if (_lastScene != null && _lastScene!.trim().isNotEmpty) {
         _pendingScene = _lastScene;
         _pendingScenePage = _currentPage;
       }
       return;
     }
+    if (_sceneImage == null) return;
     // Same scene, new look — repaint the current page's picture.
     setState(() => _painting = true);
     try {
@@ -1024,18 +1068,15 @@ class _CompanionScreenState extends State<CompanionScreen> {
             if (_partnerMode && (_turn.partnerTip?.trim().isNotEmpty ?? false))
               _PartnerTip(text: _turn.partnerTip!.trim()),
             if (_busy)
-              // Waiting is part of the experience: a calm sentence, not a
-              // bare spinner — predictability is the user's regulation.
+              // Waiting is part of the experience: the brush at work and a
+              // calm sentence, not a bare spinner — predictability is the
+              // user's regulation. The same brush waits everywhere.
               const Padding(
                 padding: EdgeInsets.all(12),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 3),
-                    ),
+                    PainterWait(width: 56, height: 36),
                     SizedBox(width: 10),
                     Text(
                       'רגע, חושבים יחד… ✨',
@@ -1213,12 +1254,8 @@ class _CreationCard extends StatelessWidget {
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          SizedBox(
-                            height: 14,
-                            width: 14,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white),
-                          ),
+                          PainterWait(
+                              width: 30, height: 20, color: Colors.white),
                           SizedBox(width: 6),
                           Text(
                             'מציירים… 🎨',
@@ -1245,9 +1282,15 @@ class _CreationCard extends StatelessWidget {
           ] else if (painting) ...[
             const Padding(
               padding: EdgeInsets.only(bottom: 8),
-              child: Text(
-                'מציירים את הסצנה שלך… 🎨',
-                style: TextStyle(fontSize: 15, color: AppColors.textSoft),
+              child: Column(
+                children: [
+                  PainterWait(width: 120, height: 72, paperColor: Colors.white),
+                  SizedBox(height: 8),
+                  Text(
+                    'מציירים את הסצנה שלך… 🎨',
+                    style: TextStyle(fontSize: 15, color: AppColors.textSoft),
+                  ),
+                ],
               ),
             ),
           ],
