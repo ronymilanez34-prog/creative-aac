@@ -14,6 +14,7 @@ import '../services/lexicon_store.dart';
 import '../services/companion_service.dart';
 import '../services/creation_context.dart';
 import '../services/creation_image.dart';
+import '../services/hebrew_text.dart';
 import '../services/imagine_service.dart';
 import '../services/interaction_log.dart';
 import '../services/scene_prompt.dart';
@@ -501,8 +502,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
           out.add((
             role: 'assistant',
             text: it.offeredOptions.isEmpty
-                ? it.text
-                : '${it.text}\n[האפשרויות שהוצעו: '
+                ? stripNikud(it.text)
+                : '${stripNikud(it.text)}\n[האפשרויות שהוצעו: '
                     '${it.offeredOptions.join(' · ')}]',
           ));
         case _ThreadKind.creation:
@@ -1428,7 +1429,7 @@ class _CreationCard extends StatelessWidget {
                             ],
                           ),
                           Text(
-                            story,
+                            stripNikud(story),
                             style: const TextStyle(
                               fontSize: 17,
                               height: 1.5,
@@ -1619,7 +1620,7 @@ class _CompanionBubble extends StatelessWidget {
               ),
               child: symbols.isEmpty
                   ? Text(
-                      text,
+                      stripNikud(text),
                       style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w600,
@@ -2103,7 +2104,7 @@ class _ConfirmArea extends StatelessWidget {
               ),
               Expanded(
                 child: Text(
-                  prompt.question,
+                  stripNikud(prompt.question),
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 20,
@@ -2129,7 +2130,7 @@ class _ConfirmArea extends StatelessWidget {
                   ),
                   Expanded(
                     child: BigButton(
-                      label: prompt.options[i],
+                      label: stripNikud(prompt.options[i]),
                       color: AppColors.accent,
                       onTap: () => onChoose(prompt.options[i], i),
                     ),

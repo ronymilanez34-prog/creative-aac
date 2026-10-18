@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/story.dart';
+import '../services/hebrew_text.dart';
 import '../services/companion_factory.dart';
 import '../services/interaction_log.dart';
 import '../services/speech.dart';
@@ -112,7 +113,9 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
     // Both layers travel, each named for what it is.
     final text = '${story.title}\n\n${story.pages.map((p) {
       final told = p.told?.trim() ?? '';
-      return told.isEmpty ? p.text : '${p.text}\n(המלווה מספר: $told)';
+      return told.isEmpty
+          ? p.text
+          : '${p.text}\n(המלווה מספר: ${stripNikud(told)})';
     }).join('\n\n')}';
     try {
       final images = <XFile>[];
@@ -237,7 +240,7 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          p.told!.trim(),
+                          stripNikud(p.told!.trim()),
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             fontSize: 19,
