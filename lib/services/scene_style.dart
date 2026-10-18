@@ -40,3 +40,10 @@ SceneStyle? styleFromLabel(String label) {
 const String kStyleQuestion = 'באיזה סגנון נצייר?';
 List<String> get kStyleQuestionOptions =>
     [for (final s in kSceneStyles) '${s.emoji} ${s.name}'];
+
+/// The app's own "new page?" question after the model flags a scene
+/// change (a new place or time). The creator decides; the two answers
+/// are app vocabulary, never content.
+const String kNewPageQuestion = 'זה מקום חדש. לפתוח דף חדש?';
+const String kNewPageYes = '📄 דף חדש';
+const String kNewPageNo = 'להמשיך באותו דף';

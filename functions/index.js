@@ -80,6 +80,7 @@ const TURN_SCHEMA = {
     "scene_update",
     "creation_summary",
     "page_story",
+    "scene_change",
     "needs_confirmation",
     "confirm",
     "options",
@@ -108,6 +109,9 @@ const TURN_SCHEMA = {
     // The companion's telling of the current page — the second layer over
     // the creator's own words (see the prompt: "שני רבדים").
     page_story: { type: ["string", "null"] },
+    // The latest choice moved the story to a new place or time — a scene
+    // that deserves its own page. The app asks the creator; they decide.
+    scene_change: { type: "boolean" },
     needs_confirmation: { type: "boolean" },
     confirm: {
       anyOf: [

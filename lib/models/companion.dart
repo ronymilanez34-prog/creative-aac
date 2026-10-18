@@ -80,6 +80,7 @@ class CompanionTurn {
     this.partnerTip,
     this.questions = const [],
     this.safeguard = false,
+    this.sceneChange = false,
     this.creationSummary,
     this.wordOffer,
     this.pageStory,
@@ -120,6 +121,10 @@ class CompanionTurn {
   /// continue as usual.
   final bool safeguard;
 
+  /// The latest choice moved the story to a new place or time — a scene
+  /// that deserves its own page. The app asks the creator; they decide.
+  final bool sceneChange;
+
   /// Rolling summary of the WHOLE creation, refreshed by the model once the
   /// creation grows long — what keeps a long creation rememberable (and
   /// affordable) when only its newest pieces travel with each turn. Null
@@ -150,6 +155,7 @@ class CompanionTurn {
         partnerTip: partnerTip,
         questions: questions,
         safeguard: safeguard,
+        sceneChange: sceneChange,
         creationSummary: creationSummary,
         wordOffer: wordOffer,
         pageStory: pageStory,
@@ -178,6 +184,7 @@ class CompanionTurn {
             .where((s) => s.trim().isNotEmpty)
             .toList(),
         safeguard: j['safeguard'] == true,
+        sceneChange: j['scene_change'] == true,
         creationSummary: j['creation_summary']?.toString(),
         pageStory: j['page_story']?.toString(),
         wordOffer: j['word_offer'] is Map<String, dynamic> &&

@@ -83,6 +83,11 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// over the creator's own words, shown as the companion's.
   final Map<int, String> _pageStories = {};
 
+  /// A scene change the model flagged, waiting for the creator's answer
+  /// to "דף חדש?": the turn to apply once answered, the new scene, and its
+  /// telling. Nothing is painted or retold until they decide.
+  ({CompanionTurn turn, String scene, String told})? _pendingSceneChange;
+
   /// Which page each creation piece belongs to (parallel to [_creation]).
   final List<int> _piecePages = [];
 
@@ -166,7 +171,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// nothing).
   static const _kNotContent = {
     'משהו אחר', 'דף חדש', 'רגע של שקט', 'קרא הכל', 'סיימנו', 'עוד',
-    'בואו נמשיך', 'יצירה אחרת לגמרי',
+    'בואו נמשיך', 'יצירה אחרת לגמרי', kNewPageYes, kNewPageNo,
   };
   DateTime _optionsShownAt = DateTime.now();
 
@@ -355,14 +360,19 @@ class _CompanionScreenState extends State<CompanionScreen> {
   static List<ChipOption> _withoutStandingDoor(List<ChipOption> options) =>
       options.where((o) => o.label.trim() != 'משהו אחר').toList();
 
-  void _applyTurn(CompanionTurn turn, {bool speak = true}) {
+  void _applyTurn(CompanionTurn turn,
+      {bool speak = true, bool addToThread = true}) {
     // A safeguard flag must reach a human, not only a banner: it is logged
     // and surfaces on the partner's next visit ("since your last review").
     if (turn.safeguard) unawaited(_log.logSafeguard());
     setState(() {
       _turn = turn;
-      _thread.add(_ThreadItem.companion(turn.say, turn.saySymbols,
-          offeredOptions: [for (final o in turn.options) o.label]));
+      // Re-applying a turn whose words are already in the thread (after
+      // the app's own question) must not say them twice.
+      if (addToThread) {
+        _thread.add(_ThreadItem.companion(turn.say, turn.saySymbols,
+            offeredOptions: [for (final o in turn.options) o.label]));
+      }
       _displayOptions = _chipSlots.arrange(_withoutStandingDoor(turn.options));
       _optionsShownAt = DateTime.now();
       // A new turn replaces any word offer still on screen — an unanswered
@@ -464,6 +474,17 @@ class _CompanionScreenState extends State<CompanionScreen> {
       unawaited(_repaintCurrentStyle());
     }
 
+    // The answer to the app's own "new page?" question is handled here,
+    // without a model turn: the model already answered; only the page
+    // the answer lands on is decided now.
+    final pendingScene = _pendingSceneChange;
+    if (pendingScene != null &&
+        (t == kNewPageYes || t == kNewPageNo)) {
+      _pendingSceneChange = null;
+      _resolveSceneChange(pendingScene, newPage: t == kNewPageYes);
+      return;
+    }
+
     setState(() => _partnerArmed = false);
     await _performTurn(t, source);
     if (mounted && _failed) _speak('רגע, משהו השתבש. אפשר לנסות שוב.');
@@ -553,6 +574,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
       final scene = next.sceneUpdate?.trim() ?? '';
       final modelAsksConfirm = next.needsConfirmation;
       final modelAdded = next.creationUpdate?.trim().isNotEmpty ?? false;
+      final hadContent = _currentPageHasContent;
+      var pieceAdded = false;
       // Two layers (18.10, Rony): the creation is the creator's OWN words,
       // exactly as chosen — one piece per content choice, in their
       // wording, never the model's sentence. The model's sentence lives in
@@ -576,10 +599,30 @@ class _CompanionScreenState extends State<CompanionScreen> {
         ));
         _piecePages.add(_currentPage);
         _thread.add(_ThreadItem.creation(own));
+        pieceAdded = true;
       }
       // The companion's telling of this page — replaces the previous
       // telling of the same page (it is the whole page, retold).
       final told = next.pageStory?.trim() ?? '';
+      // A scene change (new place or time) is a page's worth of picture.
+      // The model flags it; the creator decides: nothing is painted or
+      // retold until they answer "דף חדש?" (18.10, Rony: the pages follow
+      // the scenes — and no page opens behind the creator's back).
+      final sceneChange = next.sceneChange &&
+          pieceAdded &&
+          scene.isNotEmpty &&
+          !modelAsksConfirm &&
+          hadContent &&
+          ImagineService.available;
+      if (sceneChange) {
+        _pendingSceneChange = (turn: next, scene: scene, told: told);
+        _applyTurn(next.withConfirm(const ConfirmPrompt(
+          question: kNewPageQuestion,
+          options: [kNewPageYes, kNewPageNo],
+        )));
+        _scrollCreationToEnd();
+        return;
+      }
       if (told.isNotEmpty) _pageStories[_currentPage] = told;
       // The first picture of a creation with no style chosen: the app asks
       // the style question itself — once, spoken whole, six big choices.
@@ -762,6 +805,40 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// turn goes to the model so it CONTINUES the same creation on the new
   /// page (field bug 16.9: the marker alone read as "start something
   /// new" and the type menu came back).
+  /// The creator answered "דף חדש?" after a scene change. Yes: the last
+  /// choice (already on the card) moves to a new page with its own
+  /// picture — a new composition, same characters — and the model's
+  /// telling of the new scene becomes that page's story. No: the scene
+  /// is painted onto the current page as usual, and the page's telling
+  /// catches up on the next turn.
+  void _resolveSceneChange(
+      ({CompanionTurn turn, String scene, String told}) pending,
+      {required bool newPage}) {
+    unawaited(_log.logSelection(
+      shownOptions: const [kNewPageYes, kNewPageNo],
+      chosen: newPage ? kNewPageYes : kNewPageNo,
+      chosenIndex: newPage ? 0 : 1,
+      kind: 'page',
+      source: 'user',
+      lowEnergy: _lowEnergy,
+      latencyMs: DateTime.now().difference(_optionsShownAt).inMilliseconds,
+    ));
+    if (newPage) {
+      setState(() {
+        _currentPage++;
+        if (_piecePages.isNotEmpty) _piecePages[_piecePages.length - 1] = _currentPage;
+        if (pending.told.isNotEmpty) _pageStories[_currentPage] = pending.told;
+        _thread.add(_ThreadItem.user('דף חדש', emoji: '📄'));
+      });
+      _speak('דף חדש!');
+    }
+    _lastScene = pending.scene;
+    // The model's real turn (its options) comes back on screen now.
+    _applyTurn(pending.turn, speak: false, addToThread: false);
+    _scrollCreationToEnd();
+    unawaited(_paintScene(pending.scene, forPage: _currentPage));
+  }
+
   Future<void> _newPage() async {
     if (!_currentPageHasContent || _busy) return; // page still empty
     setState(() {

@@ -71,4 +71,14 @@ void main() {
     // Pages from before the layer existed still load.
     expect(StoryPage.fromJson(const {'text': 'a', 'emoji': 'b'}).told, isNull);
   });
+
+  test('scene_change is parsed, defaults to false, survives withConfirm', () {
+    expect(CompanionTurn.fromJson(const {'say': 'x', 'scene_change': true})
+        .sceneChange, isTrue);
+    expect(CompanionTurn.fromJson(const {'say': 'x'}).sceneChange, isFalse);
+    const t = CompanionTurn(say: 'x', sceneChange: true);
+    expect(t.withConfirm(const ConfirmPrompt(question: 'q', options: ['a']))
+        .sceneChange, isTrue);
+    expect(styleFromLabel(kNewPageYes), isNull);
+  });
 }
