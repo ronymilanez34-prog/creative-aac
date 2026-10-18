@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../models/story.dart';
 import '../services/hebrew_text.dart';
+import '../services/page_card.dart';
 import '../services/companion_factory.dart';
 import '../services/interaction_log.dart';
 import '../services/speech.dart';
@@ -118,14 +119,25 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
           : '${p.text}\n(המלווה מספר: ${stripNikud(told)})';
     }).join('\n\n')}';
     try {
+      // One picture per page, with the words INSIDE it — WhatsApp drops
+      // the text when files are attached, so a page card carries the
+      // creation (their words) and the telling, like a page of a book.
       final images = <XFile>[];
       for (var i = 0; i < story.pages.length; i++) {
-        final bytes = _pageImage(i);
-        if (bytes != null) {
+        final p = story.pages[i];
+        final card = await renderPageCard(
+          picture: _pageImage(i),
+          words: p.text,
+          told: p.told,
+          title: i == 0 ? story.title : null,
+          pageNumber: story.pages.length > 1 ? i + 1 : null,
+          pageCount: story.pages.length > 1 ? story.pages.length : null,
+        );
+        if (card != null) {
           images.add(XFile.fromData(
-            bytes,
+            card,
             mimeType: 'image/png',
-            name: 'creation_$i.png',
+            name: 'creation_${i + 1}.png',
           ));
         }
       }
