@@ -251,7 +251,10 @@ async function runCompanionTurn(data) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 1024,
+        // 18.10: with the page story (and nikud) a turn runs past 1024 —
+        // the JSON was cut mid-string and the turn died ("לא הצלחתי לפענח").
+        // The schema already bounds the shape; this only bounds length.
+        max_tokens: 4096,
         temperature: 0.7,
         system,
         messages,
@@ -290,6 +293,11 @@ async function runCompanionTurn(data) {
   }
 
   const payload = await res.json();
+  // A turn cut off by the token limit is not a parse problem — say so, so
+  // the screen (and the log) name the real cause.
+  if (payload.stop_reason === "max_tokens") {
+    throw new HttpsError("internal", "התשובה של Claude נחתכה (ארוכה מדי).", "stop_reason=max_tokens");
+  }
   const text = (payload.content || [])
     .filter((b) => b.type === "text")
     .map((b) => b.text)
@@ -300,6 +308,12 @@ async function runCompanionTurn(data) {
   if (!turn) {
     throw new HttpsError("internal", "לא הצלחתי לפענח תשובת JSON מ-Claude.", text);
   }
+  // Output size rides to the log line (not to the app): the one number
+  // that explains a slow turn.
+  Object.defineProperty(turn, "__usage_output", {
+    value: payload.usage && payload.usage.output_tokens ? payload.usage.output_tokens : 0,
+    enumerable: false,
+  });
   return turn;
 }
 
@@ -346,6 +360,7 @@ exports.companionTurnHttp = onRequest(
       // and how long did it take?" without guessing (field 18.10).
       logger.info("companion turn", {
         ms: Date.now() - t0,
+        outputTokens: turn.__usage_output || 0,
         inputChars: String((req.body || {}).userInput || "").length,
         historyTurns: Array.isArray((req.body || {}).history) ? req.body.history.length : 0,
         hasScene: !!(req.body || {}).sceneSoFar,
