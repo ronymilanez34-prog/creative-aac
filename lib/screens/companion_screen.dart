@@ -22,6 +22,7 @@ import '../services/speech.dart';
 import '../services/story_store.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
+import '../widgets/painter_wait.dart';
 import '../widgets/board_composer.dart';
 import '../widgets/full_image_view.dart';
 import '../widgets/quick_bar.dart';
@@ -1067,18 +1068,15 @@ class _CompanionScreenState extends State<CompanionScreen> {
             if (_partnerMode && (_turn.partnerTip?.trim().isNotEmpty ?? false))
               _PartnerTip(text: _turn.partnerTip!.trim()),
             if (_busy)
-              // Waiting is part of the experience: a calm sentence, not a
-              // bare spinner — predictability is the user's regulation.
+              // Waiting is part of the experience: the brush at work and a
+              // calm sentence, not a bare spinner — predictability is the
+              // user's regulation. The same brush waits everywhere.
               const Padding(
                 padding: EdgeInsets.all(12),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 3),
-                    ),
+                    PainterWait(width: 56, height: 36),
                     SizedBox(width: 10),
                     Text(
                       'רגע, חושבים יחד… ✨',
@@ -1256,12 +1254,8 @@ class _CreationCard extends StatelessWidget {
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          SizedBox(
-                            height: 14,
-                            width: 14,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white),
-                          ),
+                          PainterWait(
+                              width: 30, height: 20, color: Colors.white),
                           SizedBox(width: 6),
                           Text(
                             'מציירים… 🎨',
@@ -1288,9 +1282,15 @@ class _CreationCard extends StatelessWidget {
           ] else if (painting) ...[
             const Padding(
               padding: EdgeInsets.only(bottom: 8),
-              child: Text(
-                'מציירים את הסצנה שלך… 🎨',
-                style: TextStyle(fontSize: 15, color: AppColors.textSoft),
+              child: Column(
+                children: [
+                  PainterWait(width: 120, height: 72, paperColor: Colors.white),
+                  SizedBox(height: 8),
+                  Text(
+                    'מציירים את הסצנה שלך… 🎨',
+                    style: TextStyle(fontSize: 15, color: AppColors.textSoft),
+                  ),
+                ],
               ),
             ),
           ],

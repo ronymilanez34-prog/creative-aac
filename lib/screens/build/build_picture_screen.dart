@@ -14,6 +14,7 @@ import '../../services/speech.dart';
 import '../../services/story_store.dart';
 import '../../theme.dart';
 import '../../widgets/big_button.dart';
+import '../../widgets/painter_wait.dart';
 import '../../widgets/board_composer.dart';
 
 /// Building a PICTURE together — creation you can see. Choose a background,
@@ -659,7 +660,9 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
                             child: const Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                CircularProgressIndicator(
+                                PainterWait(
+                                    width: 120,
+                                    height: 72,
                                     color: Colors.white),
                                 SizedBox(height: 12),
                                 Text(
