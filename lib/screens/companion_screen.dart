@@ -554,15 +554,18 @@ class _CompanionScreenState extends State<CompanionScreen> {
       // and the line is their own words, exactly as chosen (authorship:
       // nothing is written for them). Style answers and navigation never
       // become lines.
-      final visual = scene.isNotEmpty ||
-          (_lastScene != null && _lastScene!.trim().isNotEmpty);
+      // Only when the model itself confirmed a visual change this turn
+      // (a scene came back) — a turn with neither words nor scene was a
+      // question or a menu ("איזה צבע הדג"), and the creator's tap on it
+      // is not a line (field 18.10: a question ended up in the story).
       if (!pieceAdded &&
           allowCreationUpdate &&
-          visual &&
+          scene.isNotEmpty &&
           !modelAsksConfirm &&
           source == InputSource.user &&
           !_kNotContent.contains(input.trim()) &&
           styleFromLabel(input) == null &&
+          !isQuestionLike(input) &&
           input.trim().isNotEmpty) {
         final own = input.trim();
         _creation.add(CreationPiece(
@@ -611,6 +614,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
           _lastScene!.trim().isNotEmpty &&
           !_kNotContent.contains(input.trim()) &&
           styleFromLabel(input) == null &&
+          !isQuestionLike(input) &&
           ImagineService.available) {
         // Safety net (field 22.9: "הוספתי צב על האי והוא לא עלה"): a
         // content choice in a visual creation must reach the picture even

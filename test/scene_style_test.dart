@@ -1,4 +1,5 @@
 import 'package:creative_aac/models/companion.dart';
+import 'package:creative_aac/services/creation_context.dart';
 import 'package:creative_aac/services/scene_style.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -34,5 +35,14 @@ void main() {
     expect(asked.say, turn.say);
     expect(asked.sceneUpdate, turn.sceneUpdate);
     expect(asked.options, turn.options);
+  });
+
+  test('a question-like label is never content', () {
+    expect(isQuestionLike('איזה צבע הדג'), isTrue);
+    expect(isQuestionLike('מה עכשיו?'), isTrue);
+    expect(isQuestionLike('איפה הכלב'), isTrue);
+    expect(isQuestionLike('הדג מחייך'), isFalse);
+    expect(isQuestionLike('גלים גבוהים'), isFalse);
+    expect(isQuestionLike('סגול'), isFalse);
   });
 }

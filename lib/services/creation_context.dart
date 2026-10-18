@@ -60,3 +60,19 @@ String extractNewPiece(String update, List<String> existingPieces) {
   }
   return piece;
 }
+
+/// A tapped label that is a question ("איזה צבע הדג?", "מה עכשיו") asks
+/// to see choices — it is not content, and must never become a line of
+/// the creation or a thing in the picture (field 18.10: "שאלות לא אמורות
+/// להופיע ככה בסיפור").
+bool isQuestionLike(String input) {
+  final t = input.trim();
+  if (t.isEmpty) return false;
+  if (t.endsWith('?') || t.endsWith('؟')) return true;
+  const questionWords = [
+    'איזה', 'איזו', 'אילו', 'מה', 'מי', 'איפה', 'לאן', 'מאיפה', 'למה',
+    'מדוע', 'איך', 'כיצד', 'כמה', 'מתי', 'האם',
+  ];
+  final first = t.split(RegExp(r'\s+')).first;
+  return questionWords.contains(first);
+}
