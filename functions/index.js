@@ -396,12 +396,21 @@ async function serviceAccessToken() {
 // Fallback path: the Gemini image model on the global endpoint. Field-tested
 // on this project — every Imagen predict model 404s here, so this is in
 // practice the door that's open.
-const GEMINI_IMAGE_URL =
-  `https://aiplatform.googleapis.com/v1/projects/` +
-  `${process.env.GCLOUD_PROJECT}/locations/global/publishers/google/` +
-  `models/gemini-2.5-flash-image:generateContent`;
+// The image model lives behind the global endpoint and behind regional
+// ones, each with its own shared capacity. 18.10: the project's own quotas
+// sat at 0.01% while the global endpoint answered 429 RESOURCE_EXHAUSTED on
+// the third paint in a minute — that is shared capacity, not our quota. So
+// a busy endpoint is left for the next one before anyone waits.
+const GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image";
+const GEMINI_IMAGE_LOCATIONS = ["global", "europe-west1", "us-central1"];
+const geminiImageUrl = (location) =>
+  (location === "global"
+    ? "https://aiplatform.googleapis.com/v1/projects/"
+    : `https://${location}-aiplatform.googleapis.com/v1/projects/`) +
+  `${process.env.GCLOUD_PROJECT}/locations/${location}/publishers/google/` +
+  `models/${GEMINI_IMAGE_MODEL}:generateContent`;
 
-function geminiImage(token, prompt, withRatio, baseImageB64) {
+function geminiImage(token, prompt, withRatio, baseImageB64, location = "global") {
   const generationConfig = { responseModalities: ["TEXT", "IMAGE"] };
   if (withRatio) generationConfig.imageConfig = { aspectRatio: "4:3" };
   const parts = [];
@@ -411,7 +420,7 @@ function geminiImage(token, prompt, withRatio, baseImageB64) {
     parts.push({ inlineData: { mimeType: "image/png", data: baseImageB64 } });
   }
   parts.push({ text: prompt });
-  return fetch(GEMINI_IMAGE_URL, {
+  return fetch(geminiImageUrl(location), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -424,23 +433,29 @@ function geminiImage(token, prompt, withRatio, baseImageB64) {
   });
 }
 
-// Vertex meters the image model per minute, and a burst of quick choices
-// trips 429 RESOURCE_EXHAUSTED (field round 2.10: "after a few uses" the
-// picture stopped updating). The limit clears within the minute, so wait it
-// out instead of failing the creator's choice: Retry-After wins when the
-// server sends one; otherwise back off 4s/8s/16s — well inside the 120s
-// function and 90s client timeouts. 503 is the same story (model busy).
+// A burst of quick choices meets "busy" (429 RESOURCE_EXHAUSTED / 503) —
+// field rounds 2.10 and 18.10. Order of escape: the next endpoint first
+// (its capacity is separate), and only when every endpoint is busy, wait
+// it out: Retry-After when the server sends one, otherwise 4s/8s/16s —
+// well inside the 120s function and 90s client timeouts. An endpoint
+// that does not serve the model (404) is simply skipped.
 const BUSY_STATUSES = new Set([429, 503]);
 const BUSY_BACKOFF_MS = [4000, 8000, 16000];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function geminiImageWaitingOutBusy(token, prompt, baseImageB64) {
+  let g = null;
   for (let attempt = 0; ; attempt++) {
-    let g = await geminiImage(token, prompt, true, baseImageB64);
-    // If the aspect-ratio config is what's rejected, retry bare.
-    if (g.status === 400) {
-      g = await geminiImage(token, prompt, false, baseImageB64);
+    for (const location of GEMINI_IMAGE_LOCATIONS) {
+      g = await geminiImage(token, prompt, true, baseImageB64, location);
+      // If the aspect-ratio config is what's rejected, retry bare.
+      if (g.status === 400) {
+        g = await geminiImage(token, prompt, false, baseImageB64, location);
+      }
+      if (g.status === 404 || BUSY_STATUSES.has(g.status)) continue;
+      return g;
     }
+    // Every endpoint busy (or missing): the last answer is what we hold.
     if (!BUSY_STATUSES.has(g.status) || attempt >= BUSY_BACKOFF_MS.length) {
       return g;
     }
