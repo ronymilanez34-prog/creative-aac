@@ -596,7 +596,12 @@ class _CompanionScreenState extends State<CompanionScreen> {
       // picture becomes the CURRENT PAGE's picture.
       if (scene.isNotEmpty) {
         _lastScene = scene;
-        if (ImagineService.available) {
+        // A style answer already repaints (restyle, below); the model's
+        // scene_update on that turn would paint the same scene a second
+        // time — two calls within seconds is exactly what trips the
+        // image model's per-minute quota (field 18.10: 429 on the third
+        // call in 17 seconds).
+        if (ImagineService.available && styleFromLabel(input) == null) {
           unawaited(_paintScene(scene, forPage: _currentPage));
         }
       } else if (allowCreationUpdate &&
@@ -824,15 +829,28 @@ class _CompanionScreenState extends State<CompanionScreen> {
       }
       return;
     }
-    if (_sceneImage == null) return;
-    // Same scene, new look — repaint the current page's picture.
+    final sceneText = _lastScene?.trim() ?? '';
+    if (sceneText.isEmpty && _sceneImage == null) return;
+    // Same scene, new look. Painted AFRESH from the scene description:
+    // asking the edit model to redo an existing picture "in the style
+    // of" keeps the old look (field 18.10: "כמו צילום" came back as the
+    // same drawing). The description is the whole scene, so nothing the
+    // creator chose is lost. Only a resumed story without its text falls
+    // back to editing the picture.
     setState(() => _painting = true);
     try {
-      final bytes = await ImagineService().imagine(
-        'אותה סצנה בדיוק, צייר את כל התמונה מחדש בסגנון: ${style.prompt}. '
-        'בלי טקסט בתמונה.',
-        baseImage: _sceneImage,
-      );
+      final bytes = sceneText.isNotEmpty
+          ? await ImagineService().imagine(scenePaintPrompt(
+              sceneText,
+              hasBase: false,
+              freshPage: false,
+              stylePrompt: style.prompt,
+            ))
+          : await ImagineService().imagine(
+              'אותה סצנה בדיוק, צייר את כל התמונה מחדש בסגנון: ${style.prompt}. '
+              'בלי טקסט בתמונה.',
+              baseImage: _sceneImage,
+            );
       if (!mounted) return;
       setState(() {
         _painting = false;
