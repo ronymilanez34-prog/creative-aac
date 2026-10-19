@@ -1,12 +1,18 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../models/board.dart';
+import '../services/board_importer.dart';
+import '../services/board_photo.dart';
+import '../services/board_reader_service.dart';
 import '../services/board_store.dart';
 import '../services/obz_importer.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
 import '../widgets/board_image.dart';
+import 'board_review_screen.dart';
 
 /// "המילים שלי" — import the user's own vocabulary from their AAC app.
 ///
@@ -47,11 +53,28 @@ class _MyWordsScreenState extends State<MyWordsScreen> {
 
     // FileType.any (not custom extensions) — iOS document pickers are
     // unreliable with unregistered extensions like .obz/.ce; BoardImporter
-    // recognizes the format from the file's content.
-    final picked = await FilePicker.platform.pickFiles(withData: true);
-    final bytes = picked?.files.single.bytes;
-    if (bytes == null) return;
+    // recognizes the format from the file's content. Several files are
+    // allowed: the pages of a board as pictures.
+    final picked =
+        await FilePicker.platform.pickFiles(withData: true, allowMultiple: true);
+    final files = [
+      for (final f in picked?.files ?? const <PlatformFile>[])
+        if (f.bytes != null) f.bytes!,
+    ];
+    if (files.isEmpty) return;
 
+    final formats = files.map(BoardImporter.detect).toList();
+    final pictures = formats
+        .every((f) => f == BoardFormat.image || f == BoardFormat.pdf || f == BoardFormat.unknown);
+    final anyPicture = formats.any((f) => f == BoardFormat.image || f == BoardFormat.pdf);
+    if (files.length == 1 && !anyPicture) return _importBoardFile(files.single);
+    if (pictures && anyPicture) return _readPictures(files);
+    _say('בוחרים קובץ לוח אחד, או תמונות של הלוח — לא את שניהם יחד');
+  }
+
+  /// A board file from an AAC app (TouchChat, Open Board) — imported on
+  /// the device, words and pictures.
+  Future<void> _importBoardFile(Uint8List bytes) async {
     setState(() => _importing = true);
     try {
       final result = await _store.importFromBytes(bytes);
@@ -60,17 +83,78 @@ class _MyWordsScreenState extends State<MyWordsScreen> {
         _words = result.words;
         _importing = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-          'יובאו ${result.words.length} מילים ו-${result.imagesCount} תמונות 🎉',
-        ),
-      ));
+      _say('יובאו ${result.words.length} מילים ו-${result.imagesCount} תמונות 🎉');
     } catch (e) {
       if (!mounted) return;
       setState(() => _importing = false);
-      final msg = e is ObzFormatException ? e.message : 'משהו השתבש בייבוא — נסו שוב';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      _say(e is ObzFormatException ? e.message : 'משהו השתבש בייבוא — נסו שוב');
     }
+  }
+
+  /// Pictures/PDF of a board → the AI reads the words → the staff check
+  /// them → only then they are saved.
+  Future<void> _readPictures(List<Uint8List> files) async {
+    if (!BoardReaderService.available) {
+      _say('קריאת לוח מתמונה צריכה חיבור ל-AI, ובגרסה הזו אין חיבור');
+      return;
+    }
+    if (files.length > 10) {
+      _say('עד 10 תמונות בכל פעם');
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('לקרוא את הלוח מהתמונה?'),
+        content: const Text(
+          'התמונה נשלחת ל-AI רק כדי לקרוא את המילים, ולא נשמרת שם.
+'
+          'צלמו את הלוח בלבד, בלי אנשים. אחר כך תבדקו את המילים לפני השמירה.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('ביטול'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('לקרוא'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _importing = true);
+    List<ReadWord> read;
+    try {
+      final pages = [for (final f in files) await prepareBoardPage(f)];
+      read = await BoardReaderService().read(pages);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _importing = false);
+      _say(e is BoardReaderException ? e.message : 'הקריאה לא הצליחה — נסו שוב');
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _importing = false);
+    if (read.isEmpty) {
+      _say('לא מצאנו מילים בתמונה. נסו צילום ברור יותר של הלוח');
+      return;
+    }
+    final kept = await Navigator.of(context).push<List<String>>(
+      MaterialPageRoute(builder: (_) => BoardReviewScreen(words: read)),
+    );
+    if (kept == null || kept.isEmpty || !mounted) return;
+    final words = await _store.saveWords(kept);
+    if (!mounted) return;
+    setState(() => _words = words);
+    _say('נשמרו ${words.length} מילים 🎉');
+  }
+
+  void _say(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Future<void> _clear() async {
@@ -158,7 +242,8 @@ class _EmptyState extends StatelessWidget {
               const SizedBox(height: 12),
               const Text(
                 'משתמשים כבר באפליקציית תקשורת?\n'
-                'ייצאו ממנה את הלוח (TouchChat, או קובץ ‎.obz) וייבאו אותו לכאן —\n'
+                'ייצאו ממנה את הלוח (TouchChat, או קובץ ‎.obz) וייבאו אותו לכאן,\n'
+                'או בחרו צילומי מסך / PDF של הלוח, וה-AI יקרא את המילים —\n'
                 'המילים והתמונות המוכרות יופיעו גם ביצירת הסיפורים.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 18, height: 1.5, color: AppColors.textSoft),

@@ -57,6 +57,10 @@ void main() {
           BoardFormat.pdf);
       expect(BoardImporter.detect(Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, 0, 0])),
           BoardFormat.image);
+      expect(
+          BoardImporter.detect(Uint8List.fromList(
+              [0, 0, 0, 24, ...utf8.encode('ftypheic'), 0, 0, 0, 0])),
+          BoardFormat.image); // an iPhone photo
       expect(BoardImporter.detect(Uint8List.fromList(utf8.encode('hello world'))),
           BoardFormat.unknown);
     });

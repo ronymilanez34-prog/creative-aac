@@ -41,6 +41,7 @@ const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 
 const { buildSystemPrompt } = require("./companion_prompt");
+const { readBoard } = require("./board_reader");
 
 const ANTHROPIC_API_KEY = defineSecret("ANTHROPIC_API_KEY");
 // Shared secret the app sends as `x-app-key` to companionTurnHttp.
@@ -628,3 +629,77 @@ function parseTurn(text) {
     return null;
   }
 }
+
+/**
+ * The import door's AI net (see board_reader.js): pictures or a PDF of a
+ * board → the words on it, for the staff to review before saving.
+ * Same guard as the companion (APP_KEY). Logs sizes and counts only.
+ */
+exports.readBoardHttp = onRequest(
+  {
+    region: REGION,
+    secrets: [ANTHROPIC_API_KEY, APP_KEY],
+    cors: true,
+    timeoutSeconds: 120,
+    memory: "512MiB",
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "POST בלבד." });
+      return;
+    }
+    if (!req.get("x-app-key") || req.get("x-app-key") !== APP_KEY.value()) {
+      res.status(401).json({ error: "מפתח אפליקציה חסר או שגוי (x-app-key)." });
+      return;
+    }
+    const t0 = Date.now();
+    const pages = Array.isArray((req.body || {}).pages) ? req.body.pages : [];
+    const callClaude = async ({ system, messages, schema }) => {
+      const send = (withSchema) =>
+        fetch(ANTHROPIC_URL, {
+          method: "POST",
+          headers: {
+            "x-api-key": ANTHROPIC_API_KEY.value(),
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: MODEL,
+            max_tokens: 4096,
+            temperature: 0,
+            system,
+            messages,
+            ...(withSchema ? { output_config: { format: { type: "json_schema", schema } } } : {}),
+          }),
+        });
+      let r = await send(true);
+      if (r.status === 400) {
+        const detail = await r.text().catch(() => "");
+        if (!/output_config/i.test(detail)) throw new Error(`Claude החזיר שגיאה (400). ${detail.slice(0, 300)}`);
+        r = await send(false);
+      }
+      if (!r.ok) {
+        const detail = await r.text().catch(() => "");
+        throw new Error(`Claude החזיר שגיאה (${r.status}). ${detail.slice(0, 300)}`);
+      }
+      return r.json();
+    };
+    try {
+      const { words, outputTokens } = await readBoard(req.body, callClaude);
+      logger.info("read board", {
+        ms: Date.now() - t0,
+        pages: pages.length,
+        pdf: pages.some((p) => p && p.mediaType === "application/pdf"),
+        inputChars: pages.reduce((n, p) => n + String((p && p.dataB64) || "").length, 0),
+        words: words.length,
+        unsure: words.filter((w) => !w.sure).length,
+        outputTokens,
+      });
+      res.status(200).json({ words });
+    } catch (err) {
+      logger.warn("read board failed", { ms: Date.now() - t0, pages: pages.length, error: err.message || String(err) });
+      res.status(/^(לא נשלחו|אפשר עד|אחת התמונות|התמונות גדולות|סוג קובץ)/.test(err.message || "") ? 400 : 500)
+        .json({ error: err.message || String(err) });
+    }
+  }
+);

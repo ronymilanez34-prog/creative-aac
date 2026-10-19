@@ -68,8 +68,12 @@ class BoardImporter {
     if (b[0] == 0x25 && b[1] == 0x50 && b[2] == 0x44 && b[3] == 0x46) {
       return BoardFormat.pdf; // %PDF
     }
-    if ((b[0] == 0x89 && b[1] == 0x50) || (b[0] == 0xFF && b[1] == 0xD8)) {
-      return BoardFormat.image;
+    if ((b[0] == 0x89 && b[1] == 0x50) ||
+        (b[0] == 0xFF && b[1] == 0xD8) ||
+        (b[0] == 0x47 && b[1] == 0x49 && b[2] == 0x46) ||
+        _isHeif(b) ||
+        (b.length > 12 && b[0] == 0x52 && b[8] == 0x57 && b[9] == 0x45)) {
+      return BoardFormat.image; // PNG, JPEG, GIF, HEIC (iPhone photos), WEBP
     }
     // JSON (.obf) — first non-space character is '{' (UTF-8 BOM allowed).
     var i = 0;
@@ -80,6 +84,13 @@ class BoardImporter {
     if (i < b.length && b[i] == 0x7B) return BoardFormat.openBoard;
     return BoardFormat.unknown;
   }
+}
+
+/// iPhone photos: an ISO box "ftyp" with a HEIF/AVIF brand.
+bool _isHeif(Uint8List b) {
+  if (b.length < 12 || String.fromCharCodes(b.sublist(4, 8)) != 'ftyp') return false;
+  const brands = {'heic', 'heix', 'hevc', 'heim', 'heis', 'mif1', 'msf1', 'avif'};
+  return brands.contains(String.fromCharCodes(b.sublist(8, 12)));
 }
 
 enum BoardFormat { openBoard, touchChatZip, touchChatDb, pdf, image, unknown }

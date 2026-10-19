@@ -79,6 +79,19 @@ class BoardStore {
     );
   }
 
+  /// Saves a word list that came without pictures (the AI board reader,
+  /// after the staff reviewed it), replacing any previously imported board.
+  Future<List<BoardWord>> saveWords(List<String> labels) async {
+    final words = [
+      for (var i = 0; i < labels.length; i++) BoardWord(id: 'w$i', label: labels[i]),
+    ];
+    final dir = await _imagesDir();
+    if (dir.existsSync()) dir.deleteSync(recursive: true);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_key, jsonEncode(words.map((w) => w.toJson()).toList()));
+    return words;
+  }
+
   /// Removes the imported board entirely (words and image files).
   Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
