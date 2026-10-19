@@ -107,8 +107,7 @@ class _MyWordsScreenState extends State<MyWordsScreen> {
       builder: (context) => AlertDialog(
         title: const Text('לקרוא את הלוח מהתמונה?'),
         content: const Text(
-          'התמונה נשלחת ל-AI רק כדי לקרוא את המילים, ולא נשמרת שם.
-'
+          'התמונה נשלחת ל-AI רק כדי לקרוא את המילים, ולא נשמרת שם.\n'
           'צלמו את הלוח בלבד, בלי אנשים. אחר כך תבדקו את המילים לפני השמירה.',
         ),
         actions: [
