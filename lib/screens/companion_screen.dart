@@ -1188,6 +1188,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
         _paintError = '';
         _pictos.clear();
       });
+      _recordPictureShown();
     } catch (e) {
       if (!mounted) return;
       setState(() {

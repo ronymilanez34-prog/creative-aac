@@ -402,6 +402,11 @@ const IMAGEN_MODELS = [
   "imagen-4.0-fast-generate-001",
   "imagen-3.0-fast-generate-001",
 ];
+// 19.10, measured: both Imagen models 404 on this project (also from a
+// user credential), and the two tries cost ~2s on EVERY fresh paint
+// (trace: 7.4s total vs 5.4s in the Gemini call). Off until the project
+// actually has Imagen — flip to true and the path below is unchanged.
+const TRY_IMAGEN = false;
 const imagenUrl = (model) =>
   `https://us-central1-aiplatform.googleapis.com/v1/projects/` +
   `${process.env.GCLOUD_PROJECT}/locations/us-central1/publishers/google/` +
@@ -550,7 +555,7 @@ exports.imagineHttp = onRequest(
     };
     try {
       const token = await serviceAccessToken();
-      if (!baseImageB64) {
+      if (TRY_IMAGEN && !baseImageB64) {
         let r = null;
         for (const model of IMAGEN_MODELS) {
           r = await fetch(imagenUrl(model), {
