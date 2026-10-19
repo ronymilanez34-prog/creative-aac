@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/board.dart';
 import 'image_sink_io.dart';
+import 'board_importer.dart';
 import 'obz_importer.dart';
 
 /// Saves and loads the user's imported vocabulary (their own board words and
@@ -36,7 +37,8 @@ class BoardStore {
     }).toList();
   }
 
-  /// Imports an .obz/.obf file, replacing any previously imported board.
+  /// Imports a board file (Open Board .obz/.obf, or TouchChat .ce/.c4v),
+  /// replacing any previously imported board.
   /// Extraction happens into a scratch directory first, so a bad file never
   /// destroys an existing import.
   Future<ObzImportResult> importFromBytes(Uint8List bytes) async {
@@ -47,7 +49,7 @@ class BoardStore {
 
     final ObzImportResult result;
     try {
-      result = await ObzImporter()
+      result = await BoardImporter()
           .import(bytes: bytes, images: DirectoryImageSink(scratch));
     } catch (_) {
       scratch.deleteSync(recursive: true);

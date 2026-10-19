@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/board.dart';
 import 'image_sink.dart';
+import 'board_importer.dart';
 import 'obz_importer.dart';
 
 /// Web variant of the board store: no filesystem, so imported images are
@@ -36,7 +37,7 @@ class BoardStore {
 
   Future<ObzImportResult> importFromBytes(Uint8List bytes) async {
     final sink = MemoryImageSink();
-    final result = await ObzImporter().import(bytes: bytes, images: sink);
+    final result = await BoardImporter().import(bytes: bytes, images: sink);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _key,

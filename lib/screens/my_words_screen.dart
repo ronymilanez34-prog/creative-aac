@@ -46,7 +46,8 @@ class _MyWordsScreenState extends State<MyWordsScreen> {
     if (_importing) return;
 
     // FileType.any (not custom extensions) — iOS document pickers are
-    // unreliable with unregistered extensions like .obz; we validate content.
+    // unreliable with unregistered extensions like .obz/.ce; BoardImporter
+    // recognizes the format from the file's content.
     final picked = await FilePicker.platform.pickFiles(withData: true);
     final bytes = picked?.files.single.bytes;
     if (bytes == null) return;
@@ -157,7 +158,7 @@ class _EmptyState extends StatelessWidget {
               const SizedBox(height: 12),
               const Text(
                 'משתמשים כבר באפליקציית תקשורת?\n'
-                'ייצאו ממנה קובץ לוח (‎.obz) וייבאו אותו לכאן —\n'
+                'ייצאו ממנה את הלוח (TouchChat, או קובץ ‎.obz) וייבאו אותו לכאן —\n'
                 'המילים והתמונות המוכרות יופיעו גם ביצירת הסיפורים.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 18, height: 1.5, color: AppColors.textSoft),
