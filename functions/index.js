@@ -466,14 +466,24 @@ const BUSY_STATUSES = new Set([429, 503]);
 const BUSY_BACKOFF_MS = [4000, 8000, 16000];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function geminiImageWaitingOutBusy(token, prompt, baseImageB64) {
+// `trace` (optional array) collects one "location:status:ms" entry per
+// call made, so a slow paint can be read from the log: which endpoint
+// answered, after how many tries, and how long each took (19.10: the
+// pilot's 20-30s paints were invisible behind a single total).
+async function geminiImageWaitingOutBusy(token, prompt, baseImageB64, trace) {
   let g = null;
+  const call = async (withRatio, location) => {
+    const t = Date.now();
+    const r = await geminiImage(token, prompt, withRatio, baseImageB64, location);
+    if (trace) trace.push(`${location}:${r.status}:${Date.now() - t}`);
+    return r;
+  };
   for (let attempt = 0; ; attempt++) {
     for (const location of GEMINI_IMAGE_LOCATIONS) {
-      g = await geminiImage(token, prompt, true, baseImageB64, location);
+      g = await call(true, location);
       // If the aspect-ratio config is what's rejected, retry bare.
       if (g.status === 400) {
-        g = await geminiImage(token, prompt, false, baseImageB64, location);
+        g = await call(false, location);
       }
       if (g.status === 404 || BUSY_STATUSES.has(g.status)) continue;
       return g;
@@ -511,15 +521,33 @@ exports.imagineHttp = onRequest(
     // Gemini capability, so its presence skips the Imagen attempt.
     let baseImageB64 = String((req.body || {}).baseImageB64 || "").trim();
     if (baseImageB64.length > 11_000_000) baseImageB64 = "";
+    // A client that says `accept: image/png` gets the picture as raw bytes
+    // (content-type image/png) instead of base64 inside JSON — a third
+    // less to download and no decode step on a tablet. Older clients keep
+    // the JSON shape.
+    const wantsRaw = /image\/png/i.test(req.get("accept") || "");
     const t0 = Date.now();
-    // Timing and sizes only — never the scene itself.
+    const trace = [];
+    // Timing and sizes only — never the scene itself. `trace` lists every
+    // call to the image model (location:status:ms); `attempts` counts them.
     const done = (how) =>
       logger.info("imagine", {
         ms: Date.now() - t0,
         how,
         promptChars: prompt.length,
         baseImageChars: baseImageB64.length,
+        attempts: trace.length,
+        trace: trace.join(" "),
+        raw: wantsRaw,
       });
+    const sendImage = (b64) => {
+      if (wantsRaw) {
+        const bytes = Buffer.from(b64, "base64");
+        res.status(200).set("content-type", "image/png").send(bytes);
+      } else {
+        res.status(200).json({ imageB64: b64 });
+      }
+    };
     try {
       const token = await serviceAccessToken();
       if (!baseImageB64) {
@@ -547,7 +575,7 @@ exports.imagineHttp = onRequest(
             return;
           }
           done("imagen");
-          res.status(200).json({ imageB64: b64 });
+          sendImage(b64);
           return;
         }
       }
@@ -560,7 +588,7 @@ exports.imagineHttp = onRequest(
       let part = null;
       let attemptPrompt = prompt;
       for (let attempt = 0; attempt < 2 && !part; attempt++) {
-        g = await geminiImageWaitingOutBusy(token, attemptPrompt, baseImageB64);
+        g = await geminiImageWaitingOutBusy(token, attemptPrompt, baseImageB64, trace);
         if (!g.ok) break;
         payload = await g.json();
         part = (payload?.candidates?.[0]?.content?.parts || []).find(
@@ -597,7 +625,7 @@ exports.imagineHttp = onRequest(
         return;
       }
       done("gemini");
-      res.status(200).json({ imageB64: part.inlineData.data });
+      sendImage(part.inlineData.data);
     } catch (err) {
       done("exception");
       res.status(500).json({ error: `שגיאה ביצירת התמונה: ${String(err)}` });

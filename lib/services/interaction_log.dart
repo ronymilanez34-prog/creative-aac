@@ -76,6 +76,30 @@ class InteractionLog {
         'ts': DateTime.now().toIso8601String(),
       });
 
+  /// One choice's wait, stage by stage (ms from the tap): the companion's
+  /// answer, the paint's start and end, and the moment the picture was on
+  /// screen. [mode] says how the paint ran: 'serial' (after the answer),
+  /// 'parallel' (speculative, alongside it), 'none' (no picture this
+  /// turn), 'discarded' (a speculative paint the answer overruled).
+  /// Measured on the device — the only clock that sees the whole chain
+  /// (pilot 19.10: "at least 30 seconds between pictures").
+  Future<void> logTiming({
+    required int turnMs,
+    required int paintStartMs,
+    required int paintMs,
+    required int pictureMs,
+    required String mode,
+  }) =>
+      _append({
+        'type': 'timing',
+        'ts': DateTime.now().toIso8601String(),
+        'turnMs': turnMs,
+        'paintStartMs': paintStartMs,
+        'paintMs': paintMs,
+        'pictureMs': pictureMs,
+        'mode': mode,
+      });
+
   Future<void> _append(Map<String, Object?> entry) async {
     final list = await _load();
     list.add(jsonEncode(entry));

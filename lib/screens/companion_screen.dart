@@ -25,7 +25,7 @@ import '../services/speech.dart';
 import '../services/story_store.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
-import '../widgets/painter_wait.dart';
+import '../widgets/chosen_pictos.dart';
 import '../widgets/board_composer.dart';
 import '../widgets/full_image_view.dart';
 import '../widgets/quick_bar.dart';
@@ -142,8 +142,35 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// scene_update describes the WHOLE scene, so it contains the ones it
   /// replaced (field feedback 22.9: "שמתי דברים ולא מעדכן את התמונה" —
   /// choices made mid-paint were silently dropped).
-  String? _pendingScene;
-  int _pendingScenePage = 0;
+  ({String scene, int page, int? ticket})? _pendingScene;
+
+  /// The pictograms chosen since the last picture — shown big on the
+  /// stage while their picture is on its way (pilot 19.10: the wait must
+  /// show the creation, not a spinner).
+  final List<ChosenPicto> _pictos = [];
+  int _pictoSeq = 0;
+
+  /// Speculative paints. A content choice in a running scene starts its
+  /// paint AT THE TAP, alongside the companion's turn, from the scene with
+  /// the choice folded in — the two waits overlap instead of adding up.
+  /// Each gets a ticket; the turn settles it: covered (the model agreed
+  /// it is content → commit) or discarded (the model asked a question,
+  /// flagged a new page, or failed → the picture never shows, because a
+  /// question's answer is not yet the creator's choice). A paint that
+  /// finishes before its verdict is HELD, never shown early.
+  int _ticketSeq = 0;
+  final Map<int, bool> _ticketVerdict = {};
+  ({int ticket, Uint8List bytes, int page})? _heldPaint;
+
+  /// The clock of the current choice: ms from the tap to each stage.
+  /// Logged on the device (interaction_log 'timing') and, in partner
+  /// mode, shown small under the picture.
+  DateTime? _tapAt;
+  int _turnMs = -1;
+  int _paintStartMs = -1;
+  int _paintMs = -1;
+  String _timingMode = 'none';
+  String _lastTimingLine = '';
 
   /// A paint failure must be visible (remote-debugging rule): shown small
   /// under the picture, cleared by the next successful paint.
@@ -426,11 +453,31 @@ class _CompanionScreenState extends State<CompanionScreen> {
     }
 
     final source = _partnerArmed ? InputSource.partner : InputSource.user;
+    _tapAt = DateTime.now();
+    _turnMs = -1;
+    _paintStartMs = -1;
+    _paintMs = -1;
+    _timingMode = 'none';
+    final isContent = _isContentChoice(t, source) && kind != 'word_adopt';
     // The choice enters the visible conversation immediately — dialogue
-    // means seeing what you said, not watching it vanish.
-    setState(() => _thread.add(_ThreadItem.user(t, emoji: emoji,
-        isPartner: source == InputSource.partner)));
+    // means seeing what you said, not watching it vanish — and stands big
+    // on the stage, where its picture will be.
+    setState(() {
+      _thread.add(_ThreadItem.user(t, emoji: emoji,
+          isPartner: source == InputSource.partner));
+      // The answer to "דף חדש?" is not a thing on the stage — the choice
+      // that raised the question is already standing there.
+      if (t != kNewPageYes && t != kNewPageNo) {
+        _pictos.add(ChosenPicto(emoji: emoji, label: t, seq: ++_pictoSeq));
+      }
+    });
     _scrollThreadToEnd();
+    // Heard at once: what they built so far with the new word at its end
+    // (a navigation chip just says its name). The companion's reply, when
+    // it comes, takes over the voice.
+    _speak(isContent && _currentPageText.isNotEmpty
+        ? '$_currentPageText · $t'
+        : t);
     final latency =
         DateTime.now().difference(_optionsShownAt).inMilliseconds;
     unawaited(_log.logSelection(
@@ -498,8 +545,115 @@ class _CompanionScreenState extends State<CompanionScreen> {
     }
 
     setState(() => _partnerArmed = false);
-    await _performTurn(t, source);
+    // A content choice in a running scene paints NOW, alongside the turn.
+    int? ticket;
+    if (isContent &&
+        kind != 'confirm' &&
+        _canSpeculate(source)) {
+      ticket = ++_ticketSeq;
+      final folded = '${_lastScene!} נוסף לסצנה: $t.';
+      _timingMode = 'parallel';
+      unawaited(_paintScene(folded, forPage: _currentPage, ticket: ticket));
+    }
+    await _performTurn(t, source, ticket: ticket);
     if (mounted && _failed) _speak('רגע, משהו השתבש. אפשר לנסות שוב.');
+  }
+
+  /// A choice of the creator's own that belongs in the creation (and so
+  /// in the picture): not navigation, not a style, not a question.
+  bool _isContentChoice(String input, InputSource source) =>
+      source == InputSource.user &&
+      input.trim().isNotEmpty &&
+      !_kNotContent.contains(input.trim()) &&
+      styleFromLabel(input) == null &&
+      !isQuestionLike(input);
+
+  /// The speculative paint needs a scene to fold into: from the second
+  /// picture on. (The first picture still waits for the model — before a
+  /// scene exists, "כלב" could be a story's hero or a picture's subject.)
+  bool _canSpeculate(InputSource source) =>
+      ImagineService.available &&
+      source == InputSource.user &&
+      _pendingSceneChange == null &&
+      !_turn.needsConfirmation &&
+      (_lastScene?.trim().isNotEmpty ?? false);
+
+  /// The turn's verdict on a speculative paint. Commit shows the picture
+  /// (now, or when it finishes); discard drops it, held or queued.
+  void _settleTicket(int ticket, {required bool commit}) {
+    _ticketVerdict[ticket] = commit;
+    if (!commit) {
+      _timingMode = 'discarded';
+      final q = _pendingScene;
+      if (q != null && q.ticket == ticket) _pendingScene = null;
+    }
+    final held = _heldPaint;
+    if (held != null && held.ticket == ticket) {
+      _heldPaint = null;
+      _ticketVerdict.remove(ticket);
+      if (commit) {
+        _commitPaint(held.bytes, held.page, pictoMark: _pictoSeq);
+      } else {
+        _clearPictosIfIdle();
+      }
+    }
+  }
+
+  /// A finished picture takes the stage: the pictograms it holds leave,
+  /// the old picture crossfades into the new one (see _CreationCard).
+  void _commitPaint(Uint8List bytes, int page, {required int pictoMark}) {
+    setState(() {
+      _sceneImage = bytes;
+      _sceneSnapshots[page] = bytes;
+      _sceneDirty = true;
+      _paintError = '';
+      _waitedOutBusyPainter = false;
+      _pictos.removeWhere((p) => p.seq <= pictoMark);
+    });
+    _recordPictureShown();
+  }
+
+  /// Nothing is on its way for the stage — whatever pictograms still stand
+  /// there have no picture coming; clear them.
+  void _clearPictosIfIdle() {
+    // While "דף חדש?" is open, the choice that raised it keeps the stage:
+    // its picture comes right after the answer.
+    if (_pendingSceneChange != null) return;
+    if (_painting || _pendingScene != null || _heldPaint != null) return;
+    if (_pictos.isEmpty) return;
+    setState(() => _pictos.clear());
+  }
+
+  /// The chain's clock, written once per choice: on the frame after the
+  /// picture is on screen (or when a turn ends without one).
+  void _recordPictureShown() {
+    final tap = _tapAt;
+    if (tap == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final shown = DateTime.now().difference(tap).inMilliseconds;
+      _writeTiming(pictureMs: shown);
+    });
+  }
+
+  void _writeTiming({required int pictureMs}) {
+    if (_tapAt == null) return;
+    _tapAt = null;
+    unawaited(_log.logTiming(
+      turnMs: _turnMs,
+      paintStartMs: _paintStartMs,
+      paintMs: _paintMs,
+      pictureMs: pictureMs,
+      mode: _timingMode,
+    ));
+    String sec(int ms) => ms < 0 ? '–' : '${(ms / 1000).toStringAsFixed(1)}s';
+    final line = pictureMs < 0
+        ? '⏱ תשובה ${sec(_turnMs)}'
+        : '⏱ תשובה ${sec(_turnMs)} · ציור ${sec(_paintMs)} '
+            '(${_timingMode == 'parallel' ? 'במקביל' : 'אחרי'}) · '
+            'תמונה ${sec(pictureMs)}';
+    debugPrint('timing: $line');
+    if (_partnerMode) setState(() => _lastTimingLine = line);
   }
 
   Future<void> _retry() async {
@@ -556,7 +710,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// creation is dropped — words enter the creation only from HIS choices
   /// (authorship; field feedback 17.9: "it added text I didn't write").
   Future<void> _performTurn(String input, InputSource source,
-      {bool allowCreationUpdate = true}) async {
+      {bool allowCreationUpdate = true, int? ticket}) async {
     setState(() {
       _busy = true;
       _failed = false;
@@ -579,6 +733,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
         paceHint: _paceHint,
       );
       if (!mounted) return;
+      final tap = _tapAt;
+      if (tap != null) _turnMs = DateTime.now().difference(tap).inMilliseconds;
 
       final refreshed = next.creationSummary?.trim() ?? '';
       if (refreshed.isNotEmpty) _creationSummary = refreshed;
@@ -639,8 +795,11 @@ class _CompanionScreenState extends State<CompanionScreen> {
           !_pageFullAsked.contains(_currentPage) &&
           ImagineService.available;
       if (sceneChange || pageFull) {
+        // The creator decides where this scene lands — a picture painted
+        // ahead of that answer would decide for them.
         if (pageFull) _pageFullAsked.add(_currentPage);
         _pendingSceneChange = (turn: next, scene: scene, told: told);
+        if (ticket != null) _settleTicket(ticket, commit: false);
         _applyTurn(next.withConfirm(ConfirmPrompt(
           question: sceneChange ? kNewPageQuestion : kPageFullQuestion,
           options: const [kNewPageYes, kNewPageNo],
@@ -671,14 +830,29 @@ class _CompanionScreenState extends State<CompanionScreen> {
       // picture becomes the CURRENT PAGE's picture.
       if (scene.isNotEmpty) {
         _lastScene = scene;
-        // A style answer already repaints (restyle, below); the model's
-        // scene_update on that turn would paint the same scene a second
-        // time — two calls within seconds is exactly what trips the
-        // image model's per-minute quota (field 18.10: 429 on the third
-        // call in 17 seconds).
-        if (ImagineService.available && styleFromLabel(input) == null) {
+        if (ticket != null) {
+          // The speculative paint already holds this choice; the model's
+          // wording becomes the base for the next fold. A model question
+          // on top of a scene (rare) still overrules it.
+          _settleTicket(ticket, commit: !modelAsksConfirm);
+        } else if (ImagineService.available &&
+            styleFromLabel(input) == null) {
+          // A style answer already repaints (restyle, below); the model's
+          // scene_update on that turn would paint the same scene a second
+          // time — two calls within seconds is exactly what trips the
+          // image model's per-minute quota (field 18.10: 429 on the third
+          // call in 17 seconds).
+          _timingMode = 'serial';
           unawaited(_paintScene(scene, forPage: _currentPage));
         }
+      } else if (ticket != null) {
+        // No scene from the model: a content choice it treated as words
+        // only is covered by the speculative paint (the safety net below,
+        // already running); a question or a demo is not.
+        _settleTicket(ticket,
+            commit: allowCreationUpdate &&
+                !next.needsConfirmation &&
+                (modelAdded || pieceAdded));
       } else if (allowCreationUpdate &&
           !next.needsConfirmation &&
           source == InputSource.user &&
@@ -695,15 +869,25 @@ class _CompanionScreenState extends State<CompanionScreen> {
         // replaces this wording with its own composed one.
         final folded = '${_lastScene!} נוסף לסצנה: ${input.trim()}.';
         _lastScene = folded;
+        _timingMode = 'serial';
         unawaited(_paintScene(folded, forPage: _currentPage));
+      }
+      // A turn with no picture on its way: the stage clears and the
+      // clock closes on the answer alone.
+      _clearPictosIfIdle();
+      if (!_painting && _pendingScene == null && _heldPaint == null) {
+        _writeTiming(pictureMs: -1);
       }
     } catch (e) {
       if (!mounted) return;
+      if (ticket != null) _settleTicket(ticket, commit: false);
       setState(() {
         _busy = false;
         _failed = true;
         _lastError = e.toString();
       });
+      _clearPictosIfIdle();
+      _writeTiming(pictureMs: -1);
     }
   }
 
@@ -711,20 +895,28 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// The existing picture rides along as the edit base so the scene keeps
   /// its look between turns. Failure is quiet: the words are still there,
   /// and the next scene_update tries again.
-  Future<void> _paintScene(String scene, {required int forPage}) async {
+  Future<void> _paintScene(String scene,
+      {required int forPage, int? ticket}) async {
     if (_painting) {
       // Never drop a choice: the newest scene waits and paints next.
-      _pendingScene = scene;
-      _pendingScenePage = forPage;
+      _pendingScene = (scene: scene, page: forPage, ticket: ticket);
       return;
     }
     setState(() => _painting = true);
+    final pictoMark = _pictoSeq;
+    final tap = _tapAt;
+    if (tap != null) _paintStartMs = DateTime.now().difference(tap).inMilliseconds;
+    final paintClock = Stopwatch()..start();
     try {
       // This page's own picture is the edit base when it has one; a fresh
       // page starts from the previous picture — a NEW composition that
       // keeps the same characters (the "same character, new page" ask).
-      final base = _sceneSnapshots[forPage] ?? _sceneImage;
-      final freshPage = _sceneSnapshots[forPage] == null && base != null;
+      final fullBase = _sceneSnapshots[forPage] ?? _sceneImage;
+      final freshPage = _sceneSnapshots[forPage] == null && fullBase != null;
+      // The edit base travels small (640px, as it is saved): the model
+      // paints the same from it (checked 19.10) and a tablet uploads a
+      // quarter of the bytes.
+      final base = fullBase == null ? null : await _shrunkBase(fullBase);
       // One wording for every paint (scene_prompt.dart): the scene, the
       // style, and the rule that nothing the creator didn't choose gets in.
       final prompt = scenePaintPrompt(
@@ -735,14 +927,18 @@ class _CompanionScreenState extends State<CompanionScreen> {
       );
       final bytes = await ImagineService().imagine(prompt, baseImage: base);
       if (!mounted) return;
-      setState(() {
-        _painting = false;
-        _sceneImage = bytes;
-        _sceneSnapshots[forPage] = bytes;
-        _sceneDirty = true;
-        _paintError = '';
-        _waitedOutBusyPainter = false;
-      });
+      _paintMs = paintClock.elapsedMilliseconds;
+      setState(() => _painting = false);
+      final verdict = ticket == null ? true : _ticketVerdict.remove(ticket);
+      if (verdict == null) {
+        // Finished before the turn judged it: held, shown only if covered.
+        _heldPaint = (ticket: ticket!, bytes: bytes, page: forPage);
+      } else if (verdict) {
+        _commitPaint(bytes, forPage, pictoMark: pictoMark);
+      } else {
+        _clearPictosIfIdle();
+        _writeTiming(pictureMs: -1);
+      }
     } catch (e) {
       if (!mounted) return;
       final busy = e is ImagineException && e.isBusy;
@@ -756,30 +952,41 @@ class _CompanionScreenState extends State<CompanionScreen> {
         setState(() {
           _paintError = 'המחולל עמוס רגע — מנסים שוב בעוד כמה שניות';
         });
-        if (_pendingScene == null) {
-          _pendingScene = scene;
-          _pendingScenePage = forPage;
-        }
+        _pendingScene ??= (scene: scene, page: forPage, ticket: ticket);
         await Future<void>.delayed(const Duration(seconds: 20));
         if (!mounted) return;
         setState(() => _painting = false);
       } else {
+        if (ticket != null) _ticketVerdict.remove(ticket);
         setState(() {
           _painting = false;
           // Visible, calm, and specific enough for a screenshot to tell us
           // what failed — a swallowed error looks like "it just ignores me".
           _paintError = 'הציור לא הצליח הפעם ($e) — הבחירה הבאה תנסה שוב';
         });
+        _clearPictosIfIdle();
+        _writeTiming(pictureMs: -1);
       }
     }
     // Whatever queued while the brush was busy paints now, on the fresh
     // base — so nothing the creator chose goes missing from the picture.
     if (mounted && _pendingScene != null) {
-      final nextScene = _pendingScene!;
-      final nextPage = _pendingScenePage;
+      final next = _pendingScene!;
       _pendingScene = null;
-      await _paintScene(nextScene, forPage: nextPage);
+      await _paintScene(next.scene, forPage: next.page, ticket: next.ticket);
     }
+  }
+
+  /// The 640px copy of a picture that serves as its edit base — made once
+  /// per picture, not once per paint.
+  Uint8List? _shrunkFrom;
+  Uint8List? _shrunk;
+  Future<Uint8List> _shrunkBase(Uint8List full) async {
+    if (identical(full, _shrunkFrom) && _shrunk != null) return _shrunk!;
+    final small = await shrinkForStorage(full);
+    _shrunkFrom = full;
+    _shrunk = small;
+    return small;
   }
 
   /// The creator adopts an offered word into the shared language: it is
@@ -872,9 +1079,15 @@ class _CompanionScreenState extends State<CompanionScreen> {
 
   Future<void> _newPage() async {
     if (!_currentPageHasContent || _busy) return; // page still empty
+    _tapAt = DateTime.now();
+    _turnMs = -1;
+    _paintStartMs = -1;
+    _paintMs = -1;
+    _timingMode = 'none';
     setState(() {
       _currentPage++;
       _thread.add(_ThreadItem.user('דף חדש', emoji: '📄'));
+      _pictos.add(ChosenPicto(emoji: '📄', label: 'דף חדש', seq: ++_pictoSeq));
     });
     _scrollThreadToEnd();
     _speak('דף חדש!');
@@ -940,8 +1153,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
       // when the style question is answered) — the style change rides the
       // pending queue: the scene repaints with the new style right after.
       if (_lastScene != null && _lastScene!.trim().isNotEmpty) {
-        _pendingScene = _lastScene;
-        _pendingScenePage = _currentPage;
+        _pendingScene = (scene: _lastScene!, page: _currentPage, ticket: null);
       }
       return;
     }
@@ -974,6 +1186,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
         _sceneSnapshots[_currentPage] = bytes;
         _sceneDirty = true;
         _paintError = '';
+        _pictos.clear();
       });
     } catch (e) {
       if (!mounted) return;
@@ -981,13 +1194,13 @@ class _CompanionScreenState extends State<CompanionScreen> {
         _painting = false;
         _paintError = 'החלפת הסגנון לא הצליחה ($e) — אפשר לנסות שוב';
       });
+      _clearPictosIfIdle();
     }
     // A scene that queued while the style repainted goes next.
     if (mounted && _pendingScene != null) {
-      final nextScene = _pendingScene!;
-      final nextPage = _pendingScenePage;
+      final next = _pendingScene!;
       _pendingScene = null;
-      await _paintScene(nextScene, forPage: nextPage);
+      await _paintScene(next.scene, forPage: next.page, ticket: next.ticket);
     }
   }
 
@@ -1236,8 +1449,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
               pageNumber: _currentPage > 0 ? _currentPage + 1 : null,
               scroll: _creationScroll,
               image: _sceneSnapshots[_currentPage],
-              painting: _painting,
+              pictos: _pictos,
               paintError: _paintError,
+              timingLine: _partnerMode ? _lastTimingLine : '',
             ),
             Expanded(
               child: ListView.separated(
@@ -1253,25 +1467,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
             ),
             if (_partnerMode && (_turn.partnerTip?.trim().isNotEmpty ?? false))
               _PartnerTip(text: _turn.partnerTip!.trim()),
-            if (_busy)
-              // Waiting is part of the experience: the brush at work and a
-              // calm sentence, not a bare spinner — predictability is the
-              // user's regulation. The same brush waits everywhere.
-              const Padding(
-                padding: EdgeInsets.all(12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    PainterWait(width: 56, height: 36),
-                    SizedBox(width: 10),
-                    Text(
-                      'רגע, חושבים יחד… ✨',
-                      style:
-                          TextStyle(fontSize: 16, color: AppColors.textSoft),
-                    ),
-                  ],
-                ),
-              ),
+            // No waiting sign here: the wait is on the stage — the chosen
+            // pictograms stand where their picture will be (pilot 19.10).
             if (_pendingOffer != null &&
                 !_busy &&
                 !_failed &&
@@ -1349,8 +1546,9 @@ class _CreationCard extends StatelessWidget {
     this.storyLabel = 'פז מספר',
     this.onSpeak,
     this.image,
-    this.painting = false,
+    this.pictos = const [],
     this.paintError = '',
+    this.timingLine = '',
     this.pageNumber,
   });
 
@@ -1369,8 +1567,13 @@ class _CreationCard extends StatelessWidget {
   /// The painted scene of a visual creation — shown above the words.
   final Uint8List? image;
 
-  /// A repaint is in flight (small quiet indicator on the picture).
-  final bool painting;
+  /// The pictograms chosen since the last picture — the waiting state:
+  /// shown big over the picture (or on the empty stage) until the picture
+  /// that holds them arrives.
+  final List<ChosenPicto> pictos;
+
+  /// Partner mode only: the last choice's clock, small under the picture.
+  final String timingLine;
 
   /// The last paint failure, when there is one — visible, never swallowed.
   final String paintError;
@@ -1378,12 +1581,17 @@ class _CreationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasImage = image != null;
+    final waiting = pictos.isNotEmpty;
     return Container(
       margin: const EdgeInsets.all(12),
       padding: const EdgeInsets.all(16),
       constraints: BoxConstraints(
           minHeight: 72,
-          maxHeight: hasImage ? 460 : (story.isEmpty ? 150 : 230)),
+          maxHeight: hasImage
+              ? 460
+              : waiting
+                  ? 300
+                  : (story.isEmpty ? 150 : 230)),
       width: double.infinity,
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -1412,19 +1620,41 @@ class _CreationCard extends StatelessWidget {
                 // cut"). Contain keeps every character in frame; a tap
                 // opens it full screen with zoom — chosen details must be
                 // SEEABLE (field feedback 22.9: "לא רואה הכל").
+                // A new picture fades in over the old one (700ms): the
+                // choice SEEN becoming a picture, not a cut.
                 GestureDetector(
                   onTap: () => showFullImage(context, image!),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: Image.memory(
-                      image!,
-                      height: 240,
-                      width: double.infinity,
-                      fit: BoxFit.contain,
-                      gaplessPlayback: true,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 700),
+                      switchInCurve: Curves.easeInOut,
+                      switchOutCurve: Curves.easeInOut,
+                      layoutBuilder: (current, previous) => Stack(
+                        alignment: Alignment.center,
+                        children: [...previous, if (current != null) current],
+                      ),
+                      child: Image.memory(
+                        image!,
+                        key: ValueKey(identityHashCode(image)),
+                        height: 240,
+                        width: double.infinity,
+                        fit: BoxFit.contain,
+                        gaplessPlayback: true,
+                      ),
                     ),
                   ),
                 ),
+                if (waiting)
+                  // The new choices enter the picture: big, over it, until
+                  // the picture that includes them takes their place.
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Center(
+                        child: ChosenPictos(pictos: pictos, overPicture: true),
+                      ),
+                    ),
+                  ),
                 Positioned(
                   bottom: 6,
                   left: 6,
@@ -1440,34 +1670,6 @@ class _CreationCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (painting)
-                  // Loud enough to be understood: a bare spinner read as
-                  // "it ignores me" in the field — say what's happening.
-                  Positioned(
-                    top: 6,
-                    left: 6,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.55),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          PainterWait(
-                              width: 30, height: 20, color: Colors.white),
-                          SizedBox(width: 6),
-                          Text(
-                            'מציירים… 🎨',
-                            style:
-                                TextStyle(fontSize: 13, color: Colors.white),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
               ],
             ),
             if (paintError.isNotEmpty)
@@ -1480,21 +1682,38 @@ class _CreationCard extends StatelessWidget {
                       fontSize: 13, color: Colors.redAccent),
                 ),
               ),
+            if (timingLine.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  timingLine,
+                  textAlign: TextAlign.center,
+                  textDirection: TextDirection.rtl,
+                  style: const TextStyle(
+                      fontSize: 11, color: AppColors.textSoft),
+                ),
+              ),
             const SizedBox(height: 10),
-          ] else if (painting) ...[
-            const Padding(
-              padding: EdgeInsets.only(bottom: 8),
-              child: Column(
-                children: [
-                  PainterWait(width: 120, height: 72, paperColor: Colors.white),
-                  SizedBox(height: 8),
-                  Text(
-                    'מציירים את הסצנה שלך… 🎨',
-                    style: TextStyle(fontSize: 15, color: AppColors.textSoft),
-                  ),
-                ],
+          ] else if (waiting) ...[
+            // No picture yet: the choices stand alone on the stage, big,
+            // where the first picture will appear.
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: SizedBox(
+                height: 150,
+                child: Center(child: ChosenPictos(pictos: pictos)),
               ),
             ),
+            if (paintError.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  paintError,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 13, color: Colors.redAccent),
+                ),
+              ),
           ],
           Expanded(
             child: text.isEmpty
