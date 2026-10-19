@@ -55,8 +55,15 @@ jobs:
       - name: Dependencies
         run: flutter pub get
 
+      # Problems also go out as annotations — readable through the API when
+      # the raw log isn't reachable (remote sessions).
       - name: Analyze
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        run: |
+          flutter analyze --no-fatal-infos --no-fatal-warnings > analyze.txt 2>&1 && cat analyze.txt || {
+            cat analyze.txt
+            grep -E " error - " analyze.txt | head -20 | sed 's/^/::error::/'
+            exit 1
+          }
 
       - name: Test
         run: flutter test
