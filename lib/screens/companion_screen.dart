@@ -432,7 +432,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
       } else {
         // The chips are spoken too, in their on-screen order (20.10, Rony:
         // "הקראה גם לאופציות") — the screen never assumes reading.
-        final labels = [for (final o in _displayOptions) o.label];
+        // Only what is on screen (low energy shows two) — never the
+        // hidden ones (20.10: "מקריאה גם את המוסתר").
+        final labels = [for (final o in _visibleOptions) o.label];
         _speak(labels.isEmpty
             ? turn.say
             : '${turn.say} ${labels.join(', ')}, או משהו אחר');
