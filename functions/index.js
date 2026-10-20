@@ -471,6 +471,17 @@ const BUSY_STATUSES = new Set([429, 503]);
 const BUSY_BACKOFF_MS = [4000, 8000, 16000];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// An endpoint that just said "busy" stays busy for a while — and its 429
+// is SLOW (20.10 logs: global answered 429 after 4-5s on seven paints in
+// a row, then us-central1 painted fine). So a busy endpoint is remembered
+// for a minute (per instance) and tried last, not first.
+const BUSY_MEMORY_MS = 60_000;
+const busyUntil = new Map();
+const locationsByFreshness = () =>
+  [...GEMINI_IMAGE_LOCATIONS].sort(
+    (a, b) => (busyUntil.get(a) || 0) - (busyUntil.get(b) || 0)
+  );
+
 // `trace` (optional array) collects one "location:status:ms" entry per
 // call made, so a slow paint can be read from the log: which endpoint
 // answered, after how many tries, and how long each took (19.10: the
@@ -484,13 +495,18 @@ async function geminiImageWaitingOutBusy(token, prompt, baseImageB64, trace) {
     return r;
   };
   for (let attempt = 0; ; attempt++) {
-    for (const location of GEMINI_IMAGE_LOCATIONS) {
+    for (const location of locationsByFreshness()) {
       g = await call(true, location);
       // If the aspect-ratio config is what's rejected, retry bare.
       if (g.status === 400) {
         g = await call(false, location);
       }
-      if (g.status === 404 || BUSY_STATUSES.has(g.status)) continue;
+      if (BUSY_STATUSES.has(g.status)) {
+        busyUntil.set(location, Date.now() + BUSY_MEMORY_MS);
+        continue;
+      }
+      if (g.status === 404) continue;
+      if (g.ok) busyUntil.delete(location);
       return g;
     }
     // Every endpoint busy (or missing): the last answer is what we hold.

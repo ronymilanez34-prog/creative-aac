@@ -450,7 +450,14 @@ class _CompanionScreenState extends State<CompanionScreen> {
     String emoji = '',
   }) async {
     final t = text.trim();
-    if (t.isEmpty || _busy) return;
+    if (t.isEmpty) return;
+    if (_busy) {
+      // A press while the companion is still answering is not lost in
+      // silence (20.10: presses "didn't work") — it is heard, and asked
+      // to wait a moment. The current turn finishes first.
+      _speak('רגע… $t');
+      return;
+    }
     _input.clear();
 
     // Re-reading is local: speaking what is already on screen needs no
