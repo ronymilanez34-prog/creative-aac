@@ -1456,7 +1456,16 @@ class _CompanionScreenState extends State<CompanionScreen> {
         ],
       ),
       body: SafeArea(
-        child: Stack(
+        child: LayoutBuilder(builder: (context, box) {
+        // A short screen (iPad in landscape inside Safari, ~600px of body)
+        // must still show the whole question with all its choices (20.10:
+        // "לא מצליח לרדת באייפד" — the style question ran off the screen
+        // with nothing to scroll). The stage shrinks, the bottom area is
+        // capped and scrolls.
+        final bodyH = box.maxHeight;
+        final compact = bodyH < 760;
+        final bottomCap = bodyH * (compact ? 0.42 : 0.5);
+        return Stack(
           children: [
             Column(
           children: [
@@ -1472,6 +1481,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
               pictos: _pictos,
               paintError: _paintError,
               timingLine: _partnerMode ? _lastTimingLine : '',
+              imageHeight: compact ? 150.0 : 240.0,
+              maxHeightCap: compact ? bodyH * 0.38 : 460.0,
             ),
             Expanded(
               child: ListView.separated(
@@ -1500,10 +1511,13 @@ class _CompanionScreenState extends State<CompanionScreen> {
                 onAdopt: () => _adoptWord(_pendingOffer!),
                 onDismiss: () => _dismissOffer(_pendingOffer!),
               ),
-            if (_failed)
-              _RetryArea(onRetry: _retry, detail: _lastError)
-            else if (_turn.needsConfirmation && _turn.confirm != null)
-              _ConfirmArea(
+            ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: bottomCap),
+              child: SingleChildScrollView(
+                child: _failed
+                    ? _RetryArea(onRetry: _retry, detail: _lastError)
+                    : _turn.needsConfirmation && _turn.confirm != null
+                        ? _ConfirmArea(
                 prompt: _turn.confirm!,
                 onSpeak: _speak,
                 onChoose: (o, i) => _send(
@@ -1513,8 +1527,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
                   shownOptions: _turn.confirm!.options,
                 ),
               )
-            else
-              _OptionsArea(
+                        : _OptionsArea(
                 options: options,
                 controller: _input,
                 boardWords: _boardWords,
@@ -1539,6 +1552,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
                     ? _speak('אפשר לכתוב מילה שלמה')
                     : _send(text, kind: 'text'),
               ),
+              ),
+            ),
             QuickBar(onFire: _onQuickFire),
           ],
             ),
@@ -1550,7 +1565,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
                 ),
               ),
           ],
-        ),
+        );
+        }),
       ),
       ),
       ),
@@ -1570,7 +1586,14 @@ class _CreationCard extends StatelessWidget {
     this.paintError = '',
     this.timingLine = '',
     this.pageNumber,
+    this.imageHeight = 240,
+    this.maxHeightCap = 460,
   });
+
+  /// The picture's height and the card's ceiling — smaller on a short
+  /// screen so the question below always fits.
+  final double imageHeight;
+  final double maxHeightCap;
 
   /// The creator's own words — the creation.
   final String text;
@@ -1608,9 +1631,9 @@ class _CreationCard extends StatelessWidget {
       constraints: BoxConstraints(
           minHeight: 72,
           maxHeight: hasImage
-              ? 460
+              ? maxHeightCap
               : waiting
-                  ? 300
+                  ? (maxHeightCap < 300 ? maxHeightCap : 300)
                   : (story.isEmpty ? 150 : 230)),
       width: double.infinity,
       decoration: BoxDecoration(
@@ -1657,7 +1680,7 @@ class _CreationCard extends StatelessWidget {
                       child: Image.memory(
                         image!,
                         key: ValueKey(identityHashCode(image)),
-                        height: 240,
+                        height: imageHeight,
                         width: double.infinity,
                         fit: BoxFit.contain,
                         gaplessPlayback: true,
@@ -2476,27 +2499,39 @@ class _ConfirmArea extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          for (var i = 0; i < prompt.options.length; i++)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Row(
-                children: [
-                  IconButton(
-                    tooltip: 'לשמוע בלי לבחור',
-                    icon: const Icon(Icons.volume_up_rounded,
-                        color: AppColors.accent),
-                    onPressed: () => onSpeak(prompt.options[i]),
-                  ),
-                  Expanded(
-                    child: BigButton(
-                      label: stripNikud(prompt.options[i]),
-                      color: AppColors.accent,
-                      onTap: () => onChoose(prompt.options[i], i),
+          // Many choices on a wide screen (the six styles on an iPad) go
+          // two to a row, so the whole question fits without scrolling.
+          LayoutBuilder(builder: (context, box) {
+            final twoUp = box.maxWidth >= 640 && prompt.options.length > 3;
+            final w = twoUp ? (box.maxWidth - 12) / 2 : box.maxWidth;
+            return Wrap(
+              spacing: 12,
+              runSpacing: 10,
+              children: [
+                for (var i = 0; i < prompt.options.length; i++)
+                  SizedBox(
+                    width: w,
+                    child: Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'לשמוע בלי לבחור',
+                          icon: const Icon(Icons.volume_up_rounded,
+                              color: AppColors.accent),
+                          onPressed: () => onSpeak(prompt.options[i]),
+                        ),
+                        Expanded(
+                          child: BigButton(
+                            label: stripNikud(prompt.options[i]),
+                            color: AppColors.accent,
+                            onTap: () => onChoose(prompt.options[i], i),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
-            ),
+              ],
+            );
+          }),
         ],
       ),
     );

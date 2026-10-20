@@ -9,6 +9,7 @@ import 'package:creative_aac/models/companion.dart';
 import 'package:creative_aac/screens/companion_screen.dart';
 import 'package:creative_aac/services/companion_service.dart';
 import 'package:creative_aac/services/imagine_service.dart';
+import 'package:creative_aac/services/scene_style.dart';
 import 'package:creative_aac/widgets/chosen_pictos.dart';
 
 /// A 1x1 transparent PNG — valid bytes for Image.memory; each paint gets
@@ -93,9 +94,11 @@ Uint8List? _shownPicture(WidgetTester tester) {
   return null;
 }
 
-Future<void> _pumpScreen(WidgetTester tester, CompanionService service) async {
-  // The pilot's screen: an iPad in portrait.
-  tester.view.physicalSize = const Size(1024, 1366);
+Future<void> _pumpScreen(WidgetTester tester, CompanionService service,
+    {Size size = const Size(1024, 1366)}) async {
+  // The pilot's screen: an iPad in portrait (or, when asked, landscape
+  // inside Safari, with far less height).
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -244,5 +247,31 @@ void main() {
     final bytes = painter.finish();
     await _settle(tester);
     expect(identical(_shownPicture(tester), bytes), isTrue);
+  });
+
+  testWidgets('on a short landscape screen the whole style question is reachable',
+      (tester) async {
+    final service = _Scripted();
+    final painter = _Painter();
+    ImagineService.override = painter.call;
+    // iPad 10.2" landscape in Safari: 1080 wide, ~670 left for the page.
+    await _pumpScreen(tester, service, size: const Size(1080, 670));
+
+    await tester.tap(find.text('כלב'));
+    await tester.pump();
+    service.answer(const CompanionTurn(
+        say: 'כלב', creationUpdate: 'כלב', sceneUpdate: 'כלב', options: _chips));
+    await _settle(tester);
+    painter.finish();
+    await _settle(tester);
+    // All six styles are on screen (an overflow would have failed the test).
+    for (final style in kSceneStyles) {
+      expect(find.text('${style.emoji} ${style.name}'), findsOneWidget);
+    }
+    final last = find.text('${kSceneStyles.last.emoji} ${kSceneStyles.last.name}');
+    await tester.ensureVisible(last);
+    await tester.tap(last);
+    await tester.pump();
+    expect(service.inputs.last, '${kSceneStyles.last.emoji} ${kSceneStyles.last.name}');
   });
 }
