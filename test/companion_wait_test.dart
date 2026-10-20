@@ -24,6 +24,7 @@ final _png = Uint8List.fromList(<int>[
 Uint8List _picture() => Uint8List.fromList(_png);
 
 const _chips = [
+  ChipOption(emoji: '🖼️', label: 'תמונה'),
   ChipOption(emoji: '🐶', label: 'כלב'),
   ChipOption(emoji: '🌳', label: 'עץ'),
   ChipOption(emoji: '👩', label: 'אמא'),
@@ -215,5 +216,33 @@ void main() {
     expect(identical(_shownPicture(tester), second), isTrue);
     expect(find.byType(ChosenPictos), findsNothing);
     expect(painter.prompts.length, 4, reason: 'no paint for a question');
+  });
+
+  testWidgets('a creation opened with "תמונה" paints even its first choice at the tap',
+      (tester) async {
+    final service = _Scripted();
+    final painter = _Painter();
+    ImagineService.override = painter.call;
+    await _pumpScreen(tester, service);
+
+    await tester.tap(find.text('תמונה'));
+    await _settle(tester);
+    expect(painter.prompts, isEmpty, reason: 'the type is not a thing to paint');
+    service.answer(const CompanionTurn(say: 'על מה?', options: _chips));
+    await _settle(tester);
+
+    await tester.tap(find.text('כלב'));
+    await _settle(tester);
+    expect(service.pending.length, 1);
+    expect(painter.prompts.length, 1, reason: 'first picture, at the tap');
+    expect(painter.prompts.single, startsWith('כלב.'));
+    expect(painter.bases.single, isNull);
+    service.answer(const CompanionTurn(
+        say: 'כלב', creationUpdate: 'כלב', sceneUpdate: 'כלב', options: _chips));
+    await _settle(tester);
+    expect(painter.prompts.length, 1, reason: 'no second paint for the same choice');
+    final bytes = painter.finish();
+    await _settle(tester);
+    expect(identical(_shownPicture(tester), bytes), isTrue);
   });
 }

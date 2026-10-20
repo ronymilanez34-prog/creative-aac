@@ -14,7 +14,7 @@ import '../../services/speech.dart';
 import '../../services/story_store.dart';
 import '../../theme.dart';
 import '../../widgets/big_button.dart';
-import '../../widgets/painter_wait.dart';
+import '../../widgets/chosen_pictos.dart';
 import '../../widgets/board_composer.dart';
 
 /// Building a PICTURE together — creation you can see. Choose a background,
@@ -289,16 +289,29 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
     return added;
   }
 
+  /// What stands on the picture while it is being painted: the things
+  /// added since the last paint (or everything, the first time) — the
+  /// wait shows the creation, not a brush (pilot 19.10).
+  List<ChosenPicto> _waitPictos = const [];
+
   Future<void> _makeReal() async {
     if (_bg == null || _imagining) return;
-    _speech.speak('מציירים את התמונה שלך, רגע...');
-    setState(() => _imagining = true);
+    // A picture already exists → EDIT it, so the creation keeps growing
+    // instead of starting over: add the new things, restyle if asked.
+    final added = _addedSincePainted;
+    final restyle = _paintedStyle != null && _paintedStyle != _style;
+    final editing = _realImage != null && (added.isNotEmpty || restyle);
+    final standing = editing && added.isNotEmpty ? added : _placed;
+    // Heard at once: what they built, in their words.
+    _speech.speak(standing.map((p) => p.label).join(', '));
+    setState(() {
+      _imagining = true;
+      _waitPictos = [
+        for (var i = 0; i < standing.length; i++)
+          ChosenPicto(emoji: standing[i].emoji, label: standing[i].label, seq: i),
+      ];
+    });
     try {
-      // A picture already exists → EDIT it, so the creation keeps growing
-      // instead of starting over: add the new things, restyle if asked.
-      final added = _addedSincePainted;
-      final restyle = _paintedStyle != null && _paintedStyle != _style;
-      final editing = _realImage != null && (added.isNotEmpty || restyle);
       final prompt = editing
           ? [
               if (added.isNotEmpty)
@@ -308,11 +321,14 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
               kOnlyWhatWasChosen,
             ].join(' ')
           : _scenePrompt;
-      final bytes = await ImagineService()
-          .imagine(prompt, baseImage: editing ? _realImage : null);
+      // The edit base travels at 640px — the model paints the same from
+      // it and a tablet uploads a quarter of the bytes.
+      final bytes = await ImagineService().imagine(prompt,
+          baseImage: editing ? await shrinkForStorage(_realImage!) : null);
       if (!mounted) return;
       setState(() {
         _imagining = false;
+        _waitPictos = const [];
         _dirty = true;
         _realImage = bytes;
         _paintedLabels = _placed.map((p) => p.label).toList();
@@ -321,7 +337,10 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
       _speech.speak('הנה התמונה שלך!');
     } catch (e) {
       if (!mounted) return;
-      setState(() => _imagining = false);
+      setState(() {
+        _imagining = false;
+        _waitPictos = const [];
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('לא הצלחנו לצייר הפעם: $e')),
       );
@@ -335,22 +354,29 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
     if (t.isEmpty || _realImage == null || _imagining) return;
     _editCtl.clear();
     _speech.speak(t);
-    setState(() => _imagining = true);
+    setState(() {
+      _imagining = true;
+      _waitPictos = [ChosenPicto(emoji: '', label: t, seq: 0)];
+    });
     try {
       final bytes = await ImagineService().imagine(
         '$t. שמור על שאר התמונה כפי שהיא. $kOnlyWhatWasChosen',
-        baseImage: _realImage,
+        baseImage: await shrinkForStorage(_realImage!),
       );
       if (!mounted) return;
       setState(() {
         _imagining = false;
+        _waitPictos = const [];
         _dirty = true;
         _realImage = bytes;
       });
       _speech.speak('הנה!');
     } catch (e) {
       if (!mounted) return;
-      setState(() => _imagining = false);
+      setState(() {
+        _imagining = false;
+        _waitPictos = const [];
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('לא הצלחנו לשנות הפעם: $e')),
       );
@@ -638,8 +664,17 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
                       // The REAL generated picture, painted over the sketch;
                       // the X returns to editing.
                       if (_realImage != null) ...[
+                        // The new picture fades in over the old one.
                         Positioned.fill(
-                          child: Image.memory(_realImage!, fit: BoxFit.cover),
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 700),
+                            child: Image.memory(
+                              _realImage!,
+                              key: ValueKey(identityHashCode(_realImage)),
+                              fit: BoxFit.cover,
+                              gaplessPlayback: true,
+                            ),
+                          ),
                         ),
                         Positioned(
                           top: 6,
@@ -653,24 +688,16 @@ class _BuildPictureScreenState extends State<BuildPictureScreen> {
                         ),
                       ],
                       if (_imagining)
+                        // The wait IS the creation: what was just added
+                        // stands big over the picture until the painted
+                        // version takes its place (pilot 19.10).
                         Positioned.fill(
-                          child: Container(
-                            color: Colors.black38,
-                            alignment: Alignment.center,
-                            child: const Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                PainterWait(
-                                    width: 120,
-                                    height: 72,
-                                    color: Colors.white),
-                                SizedBox(height: 12),
-                                Text(
-                                  'מציירים את התמונה שלך... 🎨',
-                                  style: TextStyle(
-                                      color: Colors.white, fontSize: 18),
-                                ),
-                              ],
+                          child: IgnorePointer(
+                            child: Container(
+                              color: Colors.white.withValues(alpha: 0.2),
+                              alignment: Alignment.center,
+                              child: ChosenPictos(
+                                  pictos: _waitPictos, overPicture: true),
                             ),
                           ),
                         ),

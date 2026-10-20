@@ -551,7 +551,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
         kind != 'confirm' &&
         _canSpeculate(source)) {
       ticket = ++_ticketSeq;
-      final folded = '${_lastScene!} נוסף לסצנה: $t.';
+      final prior = _lastScene?.trim() ?? '';
+      final folded = prior.isEmpty ? t : '$prior נוסף לסצנה: $t.';
       _timingMode = 'parallel';
       unawaited(_paintScene(folded, forPage: _currentPage, ticket: ticket));
     }
@@ -576,7 +577,20 @@ class _CompanionScreenState extends State<CompanionScreen> {
       source == InputSource.user &&
       _pendingSceneChange == null &&
       !_turn.needsConfirmation &&
-      (_lastScene?.trim().isNotEmpty ?? false);
+      ((_lastScene?.trim().isNotEmpty ?? false) || _isPictureCreation);
+
+  /// The creator opened with "תמונה": every content choice is a thing in
+  /// the picture, so even the first one can paint at the tap (the first
+  /// scene is the choice itself).
+  bool get _isPictureCreation {
+    for (final it in _thread) {
+      if (it.kind != _ThreadKind.user) continue;
+      // The opening choice itself ("תמונה") is the type, not a thing to
+      // paint — only what comes after it is.
+      return it.text.trim() == 'תמונה' && !identical(it, _thread.last);
+    }
+    return false;
+  }
 
   /// The turn's verdict on a speculative paint. Commit shows the picture
   /// (now, or when it finishes); discard drops it, held or queued.
