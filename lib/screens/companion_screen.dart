@@ -429,7 +429,12 @@ class _CompanionScreenState extends State<CompanionScreen> {
       if (turn.needsConfirmation && c != null && c.options.isNotEmpty) {
         _speak('${turn.say} ${c.question} ${c.options.join(', או ')}');
       } else {
-        _speak(turn.say);
+        // The chips are spoken too, in their on-screen order (20.10, Rony:
+        // "הקראה גם לאופציות") — the screen never assumes reading.
+        final labels = [for (final o in _displayOptions) o.label];
+        _speak(labels.isEmpty
+            ? turn.say
+            : '${turn.say} ${labels.join(', ')}, או משהו אחר');
       }
     }
   }
@@ -2284,11 +2289,14 @@ class _Chip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final emojiSize = big ? 34.0 : 24.0;
-    final fontSize = big ? 24.0 : 18.0;
+    // Big by default (20.10, Rony: "להגדיל את הכפתורים, שיהיה יותר קל
+    // ללחוץ"): a chip is a finger target first, a label second. Low
+    // energy makes them bigger still.
+    final emojiSize = big ? 40.0 : 32.0;
+    final fontSize = big ? 26.0 : 22.0;
     final pad = big
-        ? const EdgeInsets.symmetric(horizontal: 26, vertical: 20)
-        : const EdgeInsets.symmetric(horizontal: 16, vertical: 12);
+        ? const EdgeInsets.symmetric(horizontal: 30, vertical: 24)
+        : const EdgeInsets.symmetric(horizontal: 22, vertical: 18);
     return Material(
       color: AppColors.primary.withValues(alpha: 0.12),
       borderRadius: BorderRadius.circular(16),
