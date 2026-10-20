@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<title>לוח סמלים — שלושת הדובים</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Rubik, Arial, sans-serif;
+    padding: 24px;
+    background: #fff;
+    color: #1a1a1a;
+  }
+  h1 { font-size: 18px; margin-bottom: 2px; }
+  .sub { color: #666; font-size: 13px; margin-bottom: 16px; }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+  }
+  .tile {
+    border: 2px solid #999;
+    border-radius: 10px;
+    padding: 8px 4px 6px;
+    text-align: center;
+    background: #fff;
+    break-inside: avoid;
+  }
+  .tile .sym { font-size: 34px; line-height: 1.2; display: block; }
+  .tile .w { font-size: 15px; font-weight: 700; display: block; margin-top: 2px; }
+  /* מפתח פיצג'רלד — צבעי הקטגוריות המקובלים בתת"ח */
+  .people  { background: #fff7cc; border-color: #d4b800; }
+  .action  { background: #e3f4e0; border-color: #4a9c40; }
+  .thing   { background: #ffe8d1; border-color: #d97b18; }
+  .desc    { background: #ddebfa; border-color: #3c78c8; }
+  .social  { background: #fbdfe8; border-color: #c8447c; }
+  .legend {
+    display: flex; gap: 14px; flex-wrap: wrap;
+    font-size: 12px; color: #444; margin: 14px 0 4px;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .legend i {
+    width: 14px; height: 14px; border-radius: 4px; display: inline-block;
+    border: 1.5px solid #999;
+  }
+  .missing {
+    margin-top: 18px;
+    font-size: 14px;
+    border-top: 1.5px dashed #999;
+    padding-top: 12px;
+  }
+  .missing .line {
+    border-bottom: 1px solid #bbb;
+    height: 26px;
+    margin-top: 8px;
+  }
+  @media print {
+    body { padding: 8mm; }
+    .tile .sym { font-size: 30px; }
+    @page { size: A4 landscape; margin: 8mm; }
+  }
+</style>
+</head>
+<body>
+  <h1>לוח סמלים — שלושת הדובים</h1>
+  <p class="sub">מספרים את הסיפור בהצבעה על אריחים בלבד. בלי דיבור.</p>
+
+  <div class="board">
+    <!-- אנשים -->
+    <div class="tile people"><span class="sym">👧</span><span class="w">ילדה</span></div>
+    <div class="tile people"><span class="sym">🐻</span><span class="w">דוב</span></div>
+    <div class="tile people"><span class="sym">👨</span><span class="w">אבא</span></div>
+    <div class="tile people"><span class="sym">👩</span><span class="w">אמא</span></div>
+    <div class="tile people"><span class="sym">👶</span><span class="w">תינוק</span></div>
+    <div class="tile people"><span class="sym">👤</span><span class="w">מישהו</span></div>
+    <div class="tile people"><span class="sym">👨‍👩‍👦</span><span class="w">משפחה</span></div>
+
+    <!-- פעולות — אשכולות נרדפות צמודים: הבחירה בין דומים היא המידע -->
+    <div class="tile action"><span class="sym">🍽️</span><span class="w">אכל</span></div>
+    <div class="tile action"><span class="sym">👅</span><span class="w">טעם</span></div>
+    <div class="tile action"><span class="sym">😋</span><span class="w">זלל</span></div>
+    <div class="tile action"><span class="sym">💺</span><span class="w">ישב</span></div>
+    <div class="tile action"><span class="sym">😴</span><span class="w">ישן</span></div>
+    <div class="tile action"><span class="sym">🌙</span><span class="w">נרדם</span></div>
+    <div class="tile action"><span class="sym">🧘</span><span class="w">נח</span></div>
+    <div class="tile action"><span class="sym">🚶</span><span class="w">הלך</span></div>
+    <div class="tile action"><span class="sym">🥾</span><span class="w">טייל</span></div>
+    <div class="tile action"><span class="sym">➡️</span><span class="w">יצא</span></div>
+    <div class="tile action"><span class="sym">↩️</span><span class="w">חזר</span></div>
+    <div class="tile action"><span class="sym">👀</span><span class="w">ראה</span></div>
+    <div class="tile action"><span class="sym">🔍</span><span class="w">גילה</span></div>
+    <div class="tile action"><span class="sym">💥</span><span class="w">שבר</span></div>
+    <div class="tile action"><span class="sym">🔨</span><span class="w">הרס</span></div>
+    <div class="tile action"><span class="sym">📢</span><span class="w">צעק</span></div>
+    <div class="tile action"><span class="sym">💬</span><span class="w">אמר</span></div>
+    <div class="tile action"><span class="sym">🏃</span><span class="w">ברח</span></div>
+    <div class="tile action"><span class="sym">💨</span><span class="w">נעלם</span></div>
+    <div class="tile action"><span class="sym">🦘</span><span class="w">קפץ</span></div>
+    <div class="tile action"><span class="sym">👣</span><span class="w">נכנס</span></div>
+    <div class="tile action"><span class="sym">🍲</span><span class="w">בישל</span></div>
+    <div class="tile action"><span class="sym">⏰</span><span class="w">התעורר</span></div>
+
+    <!-- דברים -->
+    <div class="tile thing"><span class="sym">🏠</span><span class="w">בית</span></div>
+    <div class="tile thing"><span class="sym">🌲</span><span class="w">יער</span></div>
+    <div class="tile thing"><span class="sym">🥣</span><span class="w">דייסה</span></div>
+    <div class="tile thing"><span class="sym">🪑</span><span class="w">כיסא</span></div>
+    <div class="tile thing"><span class="sym">🛏️</span><span class="w">מיטה</span></div>
+    <div class="tile thing"><span class="sym">🚪</span><span class="w">דלת</span></div>
+    <div class="tile thing"><span class="sym">🪟</span><span class="w">חלון</span></div>
+
+    <!-- תיאורים — עם ניגודים -->
+    <div class="tile desc"><span class="sym">🐘</span><span class="w">גדול</span></div>
+    <div class="tile desc"><span class="sym">🐭</span><span class="w">קטן</span></div>
+    <div class="tile desc"><span class="sym">🔥</span><span class="w">חם</span></div>
+    <div class="tile desc"><span class="sym">❄️</span><span class="w">קר</span></div>
+    <div class="tile desc"><span class="sym">🔓</span><span class="w">פתוח</span></div>
+    <div class="tile desc"><span class="sym">🔒</span><span class="w">נעול</span></div>
+    <div class="tile desc"><span class="sym">3️⃣</span><span class="w">שלוש</span></div>
+    <div class="tile desc"><span class="sym">📈</span><span class="w">מדי</span></div>
+    <div class="tile desc"><span class="sym">💯</span><span class="w">הכל</span></div>
+
+    <!-- רגש וחברתי — אשכול פחד וניגוד שמח/עצוב -->
+    <div class="tile social"><span class="sym">😨</span><span class="w">פחד</span></div>
+    <div class="tile social"><span class="sym">😱</span><span class="w">נבהל</span></div>
+    <div class="tile social"><span class="sym">😟</span><span class="w">דאגה</span></div>
+    <div class="tile social"><span class="sym">😠</span><span class="w">כעס</span></div>
+    <div class="tile social"><span class="sym">🙂</span><span class="w">שמח</span></div>
+    <div class="tile social"><span class="sym">😢</span><span class="w">עצוב</span></div>
+    <div class="tile social"><span class="sym">💛</span><span class="w">שלי</span></div>
+    <div class="tile social"><span class="sym">❌</span><span class="w">לא</span></div>
+    <div class="tile social"><span class="sym">✔️</span><span class="w">כן</span></div>
+    <div class="tile social"><span class="sym">➕</span><span class="w">עוד</span></div>
+    <div class="tile social"><span class="sym">♾️</span><span class="w">תמיד</span></div>
+  </div>
+
+  <div class="legend">
+    <span><i style="background:#fff7cc;border-color:#d4b800"></i> אנשים</span>
+    <span><i style="background:#e3f4e0;border-color:#4a9c40"></i> פעולות</span>
+    <span><i style="background:#ffe8d1;border-color:#d97b18"></i> דברים</span>
+    <span><i style="background:#ddebfa;border-color:#3c78c8"></i> תיאורים</span>
+    <span><i style="background:#fbdfe8;border-color:#c8447c"></i> רגש</span>
+  </div>
+
+  <div class="missing">
+    <b>מילים שהייתי צריך/ה ולא היו על הלוח:</b>
+    <div class="line"></div>
+    <div class="line"></div>
+  </div>
+</body>
+</html>
