@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
+import 'sturdy_tap.dart';
 
 /// A large, calm, high-contrast button. Big tap target and clear label —
 /// the primary interaction element across the app.
@@ -25,12 +26,16 @@ class BigButton extends StatelessWidget {
     return Semantics(
       button: true,
       label: label,
-      child: Material(
+      child: SturdyTap(
+        onTap: enabled ? onTap : null,
+        child: Material(
         color: enabled ? color : AppColors.border,
         borderRadius: BorderRadius.circular(22),
         child: InkWell(
           borderRadius: BorderRadius.circular(22),
-          onTap: enabled ? onTap : null,
+          // The ripple only; the press itself is judged by SturdyTap,
+          // which forgives a wobbling finger.
+          onTap: enabled ? () {} : null,
           child: Container(
             constraints: const BoxConstraints(minHeight: 72),
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -56,6 +61,7 @@ class BigButton extends StatelessWidget {
             ),
           ),
         ),
+      ),
       ),
     );
   }

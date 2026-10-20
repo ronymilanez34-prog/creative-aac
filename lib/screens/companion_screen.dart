@@ -29,6 +29,7 @@ import '../widgets/chosen_pictos.dart';
 import '../widgets/board_composer.dart';
 import '../widgets/full_image_view.dart';
 import '../widgets/quick_bar.dart';
+import '../widgets/sturdy_tap.dart';
 
 /// The creation loop: "supported free conversation" co-creation.
 ///
@@ -1665,8 +1666,12 @@ class _CreationCard extends StatelessWidget {
                 // SEEABLE (field feedback 22.9: "לא רואה הכל").
                 // A new picture fades in over the old one (700ms): the
                 // choice SEEN becoming a picture, not a cut.
+                // A tap on the picture speaks the page's words — it never
+                // traps anyone in the full-screen view (pilot 20.10: Shani
+                // tapped the picture and could not get out). The zoom
+                // button below opens the big view, on purpose.
                 GestureDetector(
-                  onTap: () => showFullImage(context, image!),
+                  onTap: text.isEmpty ? null : () => onSpeak?.call(text),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: AnimatedSwitcher(
@@ -1701,15 +1706,17 @@ class _CreationCard extends StatelessWidget {
                 Positioned(
                   bottom: 6,
                   left: 6,
-                  child: IgnorePointer(
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.45),
-                        borderRadius: BorderRadius.circular(10),
+                  child: Material(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => showFullImage(context, image!),
+                      child: const Padding(
+                        padding: EdgeInsets.all(10),
+                        child: Icon(Icons.zoom_out_map,
+                            size: 24, color: Colors.white),
                       ),
-                      child: const Icon(Icons.zoom_out_map,
-                          size: 18, color: Colors.white),
                     ),
                   ),
                 ),
@@ -2320,12 +2327,16 @@ class _Chip extends StatelessWidget {
     final pad = big
         ? const EdgeInsets.symmetric(horizontal: 30, vertical: 24)
         : const EdgeInsets.symmetric(horizontal: 22, vertical: 18);
-    return Material(
+    return SturdyTap(
+      onTap: onTap,
+      child: Material(
       color: AppColors.primary.withValues(alpha: 0.12),
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
+        // Ripple only — SturdyTap judges the press (a wobbling finger
+        // still counts).
+        onTap: () {},
         child: Container(
           padding: pad,
           decoration: BoxDecoration(
@@ -2348,6 +2359,7 @@ class _Chip extends StatelessWidget {
             ],
           ),
         ),
+      ),
       ),
     );
   }
