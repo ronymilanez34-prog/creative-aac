@@ -32,6 +32,7 @@ dependencies:
   # button speaks the sound THEY gave the word, not TTS.
   record: ^6.0.0
   audioplayers: ^6.1.0
+  idb_shim: ^2.9.2
 
 dev_dependencies:
   flutter_test:

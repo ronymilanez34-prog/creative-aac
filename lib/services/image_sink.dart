@@ -26,9 +26,15 @@ class MemoryImageSink implements ImageSink {
   final Map<String, Uint8List> images = {};
   int _used = 0;
 
+  /// Pictures refused for lack of budget — reported, never silent.
+  int dropped = 0;
+
   @override
   String? write(String name, Uint8List data) {
-    if (_used + data.length > budgetBytes) return null;
+    if (_used + data.length > budgetBytes) {
+      dropped++;
+      return null;
+    }
     _used += data.length;
     images[name] = data;
     return name;
