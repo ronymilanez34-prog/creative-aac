@@ -59,9 +59,16 @@ class _MyWordsScreenState extends State<MyWordsScreen> {
         _words = result.words;
         _importing = false;
       });
+      // Boards no button leads to are left out (21.10: a real export
+      // carried 94 boards, 25 reachable) — said out loud, so a smaller
+      // word count than the file suggests is never a mystery.
+      final skipped = result.unreachableBoards > 0
+          ? ' (${result.unreachableBoards} דפים שלא מגיעים אליהם מהבית הושמטו)'
+          : '';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
-          'יובאו ${result.words.length} מילים ו-${result.imagesCount} תמונות 🎉',
+          'יובאו ${result.words.length} מילים ו-${result.imagesCount} תמונות '
+          'מ-${result.boardsCount} דפים 🎉$skipped',
         ),
       ));
     } catch (e) {

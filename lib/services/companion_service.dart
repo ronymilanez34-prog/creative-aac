@@ -32,6 +32,10 @@ abstract class CompanionService {
   /// re-offer them (field feedback 22.9: "משהו אחר" kept returning the
   /// same things — without this list the model cannot know what "אחר"
   /// means to leave behind).
+  /// [boardMode] marks a turn from "יוצרים מהלוח שלי" (21.10): the user
+  /// chose from their own board and the answer is shown as its symbols,
+  /// so the model keeps `say` inside that board's vocabulary. Off, the
+  /// prompt is unchanged.
   Future<CompanionTurn> turn(
     String userInput, {
     String creationSoFar = '',
@@ -42,6 +46,7 @@ abstract class CompanionService {
     InputSource source = InputSource.user,
     bool lowEnergy = false,
     String? paceHint,
+    bool boardMode = false,
   });
 
   /// Release any held resources (network clients etc.).
@@ -86,6 +91,7 @@ class MockCompanionService implements CompanionService {
     InputSource source = InputSource.user,
     bool lowEnergy = false,
     String? paceHint,
+    bool boardMode = false,
   }) async {
     // Small delay so the demo feels like a real response.
     await Future<void>.delayed(const Duration(milliseconds: 450));

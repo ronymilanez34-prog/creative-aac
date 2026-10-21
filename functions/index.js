@@ -31,6 +31,9 @@
  *  • paceHint: "flowing" | "hesitant" (optional) — live pace signal computed
  *    by the app from recent selection latencies; steers how much the model
  *    contributes (shorten/lay out vs. slow down and calm).
+ *  • boardMode: true → the turn came from the screen that rides on the
+ *    user's own board; `say` must stay inside their board vocabulary (the
+ *    profile carries it) in short sentences. Absent/false: prompt unchanged.
  * Response: the parsed JSON turn
  *  ({ say, creation_update, options, confirm, word_offer, partner_tip,
  *     questions, safeguard }).
@@ -200,6 +203,7 @@ async function runCompanionTurn(data) {
     inputSource,
     lowEnergy,
     paceHint,
+    boardMode,
   } = data || {};
   if (!userInput || !String(userInput).trim()) {
     throw new HttpsError("invalid-argument", "חסר קלט מהמשתמש (userInput).");
@@ -222,6 +226,7 @@ async function runCompanionTurn(data) {
     declinedOptions: declined,
     lowEnergy: lowEnergy === true,
     paceHint: typeof paceHint === "string" ? paceHint : undefined,
+    boardMode: boardMode === true,
   });
 
   // A partner's modelling tap is labelled so the model treats it as a

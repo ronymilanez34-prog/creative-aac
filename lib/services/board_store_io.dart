@@ -18,6 +18,7 @@ import 'obz_importer.dart';
 /// change between launches on iOS.
 class BoardStore {
   static const _key = 'creative_aac.board_words.v1';
+  static const _layoutKey = 'creative_aac.board_layout.v1';
   static const _imagesDirName = 'board_images';
 
   /// Loads the imported words, with [BoardWord.imagePath] resolved to
@@ -34,6 +35,28 @@ class BoardStore {
       final path = '${dir.path}/${w.imageFile}';
       return w.withImagePath(File(path).existsSync() ? path : null);
     }).toList();
+  }
+
+  /// The imported board's map (pages, positions, links), with image paths
+  /// resolved — or null when nothing was imported (or an import predates
+  /// the layout). Kept apart from [load] so the word list's readers never
+  /// change.
+  Future<BoardLayout?> loadLayout() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_layoutKey);
+    if (raw == null || raw.isEmpty) return null;
+    final BoardLayout layout;
+    try {
+      layout = BoardLayout.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+    final dir = await _imagesDir();
+    return layout.withImagePaths((file) {
+      if (file == null) return null;
+      final path = '${dir.path}/$file';
+      return File(path).existsSync() ? path : null;
+    });
   }
 
   /// Imports an .obz/.obf file, replacing any previously imported board.
@@ -63,6 +86,12 @@ class BoardStore {
       _key,
       jsonEncode(result.words.map((w) => w.toJson()).toList()),
     );
+    final layout = result.layout;
+    if (layout == null) {
+      await prefs.remove(_layoutKey);
+    } else {
+      await prefs.setString(_layoutKey, jsonEncode(layout.toJson()));
+    }
 
     // Resolve image paths against the final directory.
     final words = result.words
@@ -73,7 +102,10 @@ class BoardStore {
     return ObzImportResult(
       words: words,
       boardsCount: result.boardsCount,
+      unreachableBoards: result.unreachableBoards,
       imagesCount: result.imagesCount,
+      layout: layout?.withImagePaths(
+          (file) => file == null ? null : '${live.path}/$file'),
     );
   }
 
@@ -81,6 +113,7 @@ class BoardStore {
   Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key);
+    await prefs.remove(_layoutKey);
     final dir = await _imagesDir();
     if (dir.existsSync()) dir.deleteSync(recursive: true);
   }

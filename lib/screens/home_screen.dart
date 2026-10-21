@@ -4,6 +4,7 @@ import '../config.dart';
 import '../services/companion_factory.dart';
 import '../theme.dart';
 import '../widgets/big_button.dart';
+import 'board_create_screen.dart';
 import 'build/build_picture_screen.dart';
 import 'build/build_story_screen.dart';
 import 'companion_screen.dart';
@@ -25,6 +26,18 @@ class HomeScreen extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => CompanionScreen(service: service),
+      ),
+    );
+  }
+
+  /// The screen that rides on the user's own board (21.10): same companion
+  /// recipe, the board's own layout as the way in.
+  Future<void> _openBoardCreate(BuildContext context) async {
+    final service = await buildCompanionService();
+    if (!context.mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BoardCreateScreen(service: service),
       ),
     );
   }
@@ -66,6 +79,12 @@ class HomeScreen extends StatelessWidget {
                     label: 'בואו ניצור ביחד',
                     emoji: '🤖',
                     onTap: () => _openCompanion(context),
+                  ),
+                  const SizedBox(height: 16),
+                  BigButton(
+                    label: 'יוצרים מהלוח שלי',
+                    emoji: '🧩',
+                    onTap: () => _openBoardCreate(context),
                   ),
                   const SizedBox(height: 16),
                   BigButton(

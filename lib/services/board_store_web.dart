@@ -13,6 +13,7 @@ import 'obz_importer.dart';
 /// and a placeholder bubble is nobody's picture.
 class BoardStore {
   static const _key = 'creative_aac.board_words.v1';
+  static const _layoutKey = 'creative_aac.board_layout.v1';
   static const _imagesKey = 'creative_aac.board_images.v1';
 
   Future<List<BoardWord>> load() async {
@@ -34,6 +35,34 @@ class BoardStore {
     ];
   }
 
+  /// The board's map with pictures as data URIs (see [load]); null when
+  /// nothing was imported.
+  Future<BoardLayout?> loadLayout() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_layoutKey);
+    if (raw == null || raw.isEmpty) return null;
+    final BoardLayout layout;
+    try {
+      layout = BoardLayout.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+    final uris = await _imageUris();
+    return layout.withImagePaths(
+        (file) => file == null ? null : uris[file]?.toString());
+  }
+
+  Future<Map<String, dynamic>> _imageUris() async {
+    final prefs = await SharedPreferences.getInstance();
+    final rawImages = prefs.getString(_imagesKey);
+    if (rawImages == null || rawImages.isEmpty) return const {};
+    try {
+      return jsonDecode(rawImages) as Map<String, dynamic>;
+    } catch (_) {
+      return const {};
+    }
+  }
+
   Future<ObzImportResult> importFromBytes(Uint8List bytes) async {
     final sink = MemoryImageSink();
     final result = await ObzImporter().import(bytes: bytes, images: sink);
@@ -42,6 +71,12 @@ class BoardStore {
       _key,
       jsonEncode(result.words.map((w) => w.toJson()).toList()),
     );
+    final layout = result.layout;
+    if (layout == null) {
+      await prefs.remove(_layoutKey);
+    } else {
+      await prefs.setString(_layoutKey, jsonEncode(layout.toJson()));
+    }
     final uris = <String, String>{
       for (final e in sink.images.entries)
         e.key: 'data:${_mime(e.key)};base64,${base64Encode(e.value)}',
@@ -58,6 +93,7 @@ class BoardStore {
   Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key);
+    await prefs.remove(_layoutKey);
     await prefs.remove(_imagesKey);
   }
 

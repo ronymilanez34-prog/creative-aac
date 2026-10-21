@@ -53,6 +53,54 @@ class InteractionLog {
         'latencyMs': latencyMs,
       });
 
+  /// A press on the user's own board inside "יוצרים מהלוח שלי" (21.10):
+  /// which page, which cell, and under which expression pattern. [kind] is
+  /// 'board_word' (a word) or 'board_nav' (a button that opened a page).
+  /// With [logBoardSend] this gives the pilot its "presses per message".
+  Future<void> logBoardChoice({
+    required String label,
+    required String pageId,
+    required int row,
+    required int col,
+    required String mode, // 'immediate' | 'tray'
+    required String kind, // 'board_word' | 'board_nav'
+  }) =>
+      _append({
+        'type': 'selection',
+        'ts': DateTime.now().toIso8601String(),
+        'source': 'board',
+        'kind': kind,
+        'chosen': label,
+        'page': pageId,
+        'row': row,
+        'col': col,
+        'mode': mode,
+      });
+
+  /// One message sent to the companion from the board, with how many words
+  /// it carried (1 in immediate mode; the tray's count otherwise).
+  Future<void> logBoardSend({required int wordCount, required String mode}) =>
+      _append({
+        'type': 'board_send',
+        'ts': DateTime.now().toIso8601String(),
+        'wordCount': wordCount,
+        'mode': mode,
+      });
+
+  /// The companion's answer on the board screen, word by word: which of
+  /// its words the user's board has a button for, and which it does not —
+  /// the measure of how much it really speaks their language.
+  Future<void> logBoardSay({
+    required List<String> fromBoard,
+    required List<String> notFromBoard,
+  }) =>
+      _append({
+        'type': 'board_say',
+        'ts': DateTime.now().toIso8601String(),
+        'fromBoard': fromBoard,
+        'notFromBoard': notFromBoard,
+      });
+
   /// A quick-fire (emergency strip) press — always logged, it is the most
   /// important signal for partners to review.
   Future<void> logQuickFire(String label) => _append({
