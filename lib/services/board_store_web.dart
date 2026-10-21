@@ -105,13 +105,22 @@ class BoardStore {
       written = 0;
     }
     final dropped = sink.dropped + (sink.images.length - written);
+    // Hand back the pictures resolved, like the device store does: the
+    // import screen shows the result at once, and until 21.10 it showed
+    // bubbles until the screen was reopened ("nothing changed").
+    final uris = {
+      for (final e in sink.images.entries)
+        e.key: BoardImagesWeb.dataUri(e.key, e.value),
+    };
     return ObzImportResult(
-      words: result.words,
+      words: [
+        for (final w in result.words) w.withImagePath(uris[w.imageFile]),
+      ],
       boardsCount: result.boardsCount,
       unreachableBoards: result.unreachableBoards,
       imagesCount: result.imagesCount,
       imagesDropped: dropped,
-      layout: layout,
+      layout: layout?.withImagePaths((f) => f == null ? null : uris[f]),
     );
   }
 
