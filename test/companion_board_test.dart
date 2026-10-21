@@ -64,8 +64,9 @@ class _Scripted implements CompanionService {
   void dispose() {}
 }
 
-Future<void> _pump(WidgetTester tester, CompanionService service) async {
-  tester.view.physicalSize = const Size(1024, 1366);
+Future<void> _pump(WidgetTester tester, CompanionService service,
+    {Size size = const Size(1024, 1366)}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -142,6 +143,18 @@ void main() {
     final send = entries.firstWhere((e) => e['type'] == 'board_send');
     expect(send['wordCount'], 2);
     expect(entries.where((e) => e['kind'] == 'board').length, 1);
+  });
+
+  testWidgets('on a short window the companion bubble keeps its room beside the board',
+      (tester) async {
+    final service = _Scripted();
+    await _pump(tester, service, size: const Size(1366, 1000));
+    await _settle(tester);
+    // The opening bubble, in board symbols, must be on screen (not squeezed
+    // out by stage + chips + board).
+    final bubble = find.text('היי');
+    expect(bubble, findsOneWidget);
+    expect(tester.getSize(bubble).height, greaterThan(10));
   });
 
   testWidgets('a chip still works next to the board', (tester) async {
