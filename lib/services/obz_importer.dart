@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -19,6 +20,14 @@ import 'image_sink.dart';
 /// and hands its image to an [ImageSink], so the app can show the user the
 /// exact pictures they already know from their own device. No dart:io here —
 /// the same parser runs on web (with a [NoopImageSink], words-only).
+///
+/// Only boards the user can actually reach count. A real export (21.10, a
+/// friend's TouchChat board: 94 boards in the file, 25 reachable from home)
+/// carries pages nobody navigates to any more — their words are not the
+/// user's language. So an .obz with a manifest root is walked from that root
+/// through `load_board` links, breadth-first (home first, then by depth),
+/// and unlinked boards are skipped. Without a manifest/root every board is
+/// taken, as before, so a bare .obf or a sloppy package still imports.
 class ObzImporter {
   /// Words beyond this are dropped — enough for any real board set, and it
   /// keeps a malformed/huge file from filling the device.
@@ -50,25 +59,91 @@ class ObzImporter {
       if (f.isFile) entries[_normalize(f.name)] = f;
     }
 
-    // Board order decides word priority: the root board (the user's home
-    // screen — their most-used words) first, then the rest.
-    final boardPaths = <String>[];
+    // Where to start: the manifest's root board (the user's home screen).
+    // The manifest also maps board ids to paths — load_board links in the
+    // wild come as a path, sometimes only as an id.
+    String? rootPath;
+    final idToPath = <String, String>{};
     final manifest = _tryJson(entries['manifest.json']);
     if (manifest != null) {
       final root = manifest['root'];
-      if (root is String) boardPaths.add(_normalize(root));
-      final boards = (manifest['paths'] is Map) ? (manifest['paths'] as Map)['boards'] : null;
-      if (boards is Map) {
-        for (final p in boards.values) {
-          if (p is String) boardPaths.add(_normalize(p));
-        }
+      if (root is String && root.trim().isNotEmpty) {
+        rootPath = _normalize(root.trim());
       }
-    }
-    for (final name in entries.keys) {
-      if (name.toLowerCase().endsWith('.obf')) boardPaths.add(name);
+      final boards = (manifest['paths'] is Map)
+          ? (manifest['paths'] as Map)['boards']
+          : null;
+      if (boards is Map) {
+        boards.forEach((id, p) {
+          if (p is String) idToPath['$id'] = _normalize(p);
+        });
+      }
     }
 
     final ctx = _ImportContext(images);
+    if (rootPath != null && entries.containsKey(rootPath)) {
+      _walkFromRoot(rootPath, entries, idToPath, ctx);
+    } else {
+      _collectEveryBoard(entries, idToPath, ctx);
+    }
+
+    if (ctx.boardsCount == 0) {
+      throw const ObzFormatException('לא נמצאו לוחות תקשורת בתוך הקובץ');
+    }
+    return ctx.result();
+  }
+
+  /// Breadth-first over `load_board` links from the root: home first, then
+  /// its children, then theirs — word priority follows navigation depth, and
+  /// a board no visible button leads to is never visited.
+  void _walkFromRoot(
+    String rootPath,
+    Map<String, ArchiveFile> entries,
+    Map<String, String> idToPath,
+    _ImportContext ctx,
+  ) {
+    final queue = Queue<(String, int)>()..add((rootPath, 0));
+    final seen = <String>{rootPath};
+    // Built only when a link carries an id the manifest does not know.
+    Map<String, String>? idIndex;
+
+    while (queue.isNotEmpty) {
+      final (path, depth) = queue.removeFirst();
+      final board = _tryJson(entries[path]);
+      if (board == null) continue;
+      ctx.boardsCount++;
+      // Past the word cap the walk goes on without collecting: reachable
+      // boards are still counted as reachable, not reported as orphans.
+      if (!ctx.full) _collectBoard(board, ctx, entries: entries);
+
+      for (final link in _visibleLinks(board)) {
+        final target = _resolveLink(
+          link,
+          from: path,
+          entries: entries,
+          idToPath: idToPath,
+          idIndex: () => idIndex ??= _indexBoardIds(entries),
+        );
+        if (target != null && seen.add(target)) queue.add((target, depth + 1));
+      }
+    }
+
+    ctx.unreachableBoards = entries.keys
+        .where((n) => n.toLowerCase().endsWith('.obf') && !seen.contains(n))
+        .length;
+  }
+
+  /// No usable root: every board in the package, the listed ones first.
+  void _collectEveryBoard(
+    Map<String, ArchiveFile> entries,
+    Map<String, String> idToPath,
+    _ImportContext ctx,
+  ) {
+    final boardPaths = <String>[
+      ...idToPath.values,
+      for (final name in entries.keys)
+        if (name.toLowerCase().endsWith('.obf')) name,
+    ];
     final seenBoards = <String>{};
     for (final path in boardPaths) {
       if (!seenBoards.add(path)) continue;
@@ -78,11 +153,59 @@ class ObzImporter {
       _collectBoard(board, ctx, entries: entries);
       if (ctx.full) break;
     }
+  }
 
-    if (ctx.boardsCount == 0) {
-      throw const ObzFormatException('לא נמצאו לוחות תקשורת בתוך הקובץ');
+  /// The `load_board` objects of a board's visible buttons. A hidden
+  /// button's link is a path the user cannot take, so it does not count.
+  Iterable<Map> _visibleLinks(Map<String, dynamic> board) sync* {
+    for (final b in (board['buttons'] as List? ?? const []).whereType<Map>()) {
+      if (b['hidden'] == true) continue;
+      final link = b['load_board'];
+      if (link is Map) yield link;
     }
-    return ctx.result();
+  }
+
+  /// Turns a `load_board` object into an entry name in the package, or null
+  /// when it points nowhere we can follow (external url, missing file).
+  String? _resolveLink(
+    Map link, {
+    required String from,
+    required Map<String, ArchiveFile> entries,
+    required Map<String, String> idToPath,
+    required Map<String, String> Function() idIndex,
+  }) {
+    final path = link['path'];
+    if (path is String && path.trim().isNotEmpty) {
+      final p = _normalize(path.trim());
+      if (entries.containsKey(p)) return p;
+      // Some exporters write the link relative to the linking board.
+      final dir = from.contains('/') ? from.substring(0, from.lastIndexOf('/') + 1) : '';
+      if (dir.isNotEmpty && entries.containsKey('$dir$p')) return '$dir$p';
+    }
+    final id = link['id'];
+    if (id != null && '$id'.trim().isNotEmpty) {
+      final key = '$id'.trim();
+      final fromManifest = idToPath[key];
+      if (fromManifest != null && entries.containsKey(fromManifest)) {
+        return fromManifest;
+      }
+      final indexed = idIndex()[key];
+      if (indexed != null) return indexed;
+    }
+    return null;
+  }
+
+  /// board id → entry name, from the boards' own `id` fields. Only parsed
+  /// when a link names an id the manifest does not list.
+  Map<String, String> _indexBoardIds(Map<String, ArchiveFile> entries) {
+    final out = <String, String>{};
+    for (final name in entries.keys) {
+      if (!name.toLowerCase().endsWith('.obf')) continue;
+      final board = _tryJson(entries[name]);
+      final id = board?['id'];
+      if (id != null && '$id'.trim().isNotEmpty) out.putIfAbsent('$id'.trim(), () => name);
+    }
+    return out;
   }
 
   Future<ObzImportResult> _importSingleObf(Uint8List bytes, ImageSink images) async {
@@ -228,6 +351,7 @@ class _ImportContext {
   final words = <BoardWord>[];
   final seenLabels = <String>{};
   int boardsCount = 0;
+  int unreachableBoards = 0;
   int imagesWritten = 0;
 
   bool get full => words.length >= ObzImporter.maxWords;
@@ -239,6 +363,7 @@ class _ImportContext {
     return ObzImportResult(
       words: words,
       boardsCount: boardsCount,
+      unreachableBoards: unreachableBoards,
       imagesCount: words.where((w) => w.imageFile != null).length,
     );
   }
@@ -249,10 +374,20 @@ class ObzImportResult {
     required this.words,
     required this.boardsCount,
     required this.imagesCount,
+    this.unreachableBoards = 0,
   });
 
   final List<BoardWord> words;
+
+  /// Boards reachable from home (every board, when the package has no
+  /// root). Words stop at [ObzImporter.maxWords], the count does not.
   final int boardsCount;
+
+  /// Boards in the package that no visible navigation path reaches — left
+  /// out on purpose; shown to the importer so "fewer words than the file"
+  /// is never a mystery.
+  final int unreachableBoards;
+
   final int imagesCount;
 }
 

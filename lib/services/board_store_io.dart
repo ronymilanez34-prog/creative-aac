@@ -73,6 +73,7 @@ class BoardStore {
     return ObzImportResult(
       words: words,
       boardsCount: result.boardsCount,
+      unreachableBoards: result.unreachableBoards,
       imagesCount: result.imagesCount,
     );
   }
