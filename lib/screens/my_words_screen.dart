@@ -65,10 +65,16 @@ class _MyWordsScreenState extends State<MyWordsScreen> {
       final skipped = result.unreachableBoards > 0
           ? ' (${result.unreachableBoards} דפים שלא מגיעים אליהם מהבית הושמטו)'
           : '';
+      // A picture that did not survive storage is said, not swallowed
+      // (21.10: a whole board came up without pictures and nobody knew why).
+      final lost = result.imagesDropped > 0
+          ? '\n⚠️ ${result.imagesDropped} תמונות לא נשמרו — אין מקום באחסון הדפדפן'
+          : '';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        duration: Duration(seconds: lost.isEmpty ? 4 : 8),
         content: Text(
           'יובאו ${result.words.length} מילים ו-${result.imagesCount} תמונות '
-          'מ-${result.boardsCount} דפים 🎉$skipped',
+          'מ-${result.boardsCount} דפים 🎉$skipped$lost',
         ),
       ));
     } catch (e) {

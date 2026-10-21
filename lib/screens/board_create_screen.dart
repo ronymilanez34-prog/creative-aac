@@ -1141,6 +1141,12 @@ class _Tray extends StatelessWidget {
 
 /// The page exactly as its grid: equal cells, same rows and columns, empty
 /// cells left empty — a finger that knows the way finds the same place.
+///
+/// OBF's grid.order is visual, left to right: column 0 is the LEFTMOST
+/// cell on the user's device. The app lays everything out right to left
+/// (Hebrew), which mirrored the whole board (iPad, 21.10). The grid is
+/// therefore laid out left to right on purpose; the text inside each
+/// button stays right to left.
 class _Grid extends StatelessWidget {
   const _Grid({required this.page, required this.onButton});
 
@@ -1149,23 +1155,30 @@ class _Grid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        for (var r = 0; r < page.rows; r++)
-          Expanded(
-            child: Row(
-              children: [
-                for (var c = 0; c < page.columns; c++)
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(3),
-                      child: _Cell(button: page.at(r, c), onButton: onButton),
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Column(
+        children: [
+          for (var r = 0; r < page.rows; r++)
+            Expanded(
+              child: Row(
+                children: [
+                  for (var c = 0; c < page.columns; c++)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(3),
+                        child: Directionality(
+                          textDirection: TextDirection.rtl,
+                          child:
+                              _Cell(button: page.at(r, c), onButton: onButton),
+                        ),
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -1198,12 +1211,13 @@ class _Cell extends StatelessWidget {
             final imgSize = (c.maxHeight * 0.5).clamp(16.0, 72.0);
             return Stack(
               children: [
+                // As on TouchChat: the label ABOVE the picture. A button
+                // with a picture and no label (an arrow, a person) shows
+                // the picture alone.
                 Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (b.imagePath != null)
-                        BoardImage(imagePath: b.imagePath, emoji: '', size: imgSize),
                       if (b.label.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -1220,6 +1234,13 @@ class _Cell extends StatelessWidget {
                             ),
                           ),
                         ),
+                      if (b.imagePath != null)
+                        BoardImage(imagePath: b.imagePath, emoji: '', size: imgSize)
+                      else if (b.imageFile != null)
+                        // The file had a picture here but it did not
+                        // survive storage — visible, never silent.
+                        Icon(Icons.image_not_supported_outlined,
+                            size: imgSize * 0.6, color: fg.withValues(alpha: 0.5)),
                     ],
                   ),
                 ),

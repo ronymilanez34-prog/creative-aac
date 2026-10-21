@@ -120,6 +120,22 @@ void main() {
     await _settle(tester);
   });
 
+  testWidgets('the grid is laid out left to right, as on the device',
+      (tester) async {
+    final service = _Scripted();
+    await _pump(tester, service);
+    await _settle(tester);
+    // Home row 0: column 0 is "שלום", column 1 is "אוכל". OBF order is
+    // visual left-to-right, so "שלום" must sit LEFT of "אוכל" even though
+    // the app is RTL (21.10: the whole board came out mirrored).
+    final left = tester.getCenter(find.text('שלום'));
+    final right = tester.getCenter(find.text('אוכל').first);
+    expect(left.dx, lessThan(right.dx));
+    expect((left.dy - right.dy).abs(), lessThan(1));
+    // Row 1 sits below row 0.
+    expect(tester.getCenter(find.text('כלב')).dy, greaterThan(left.dy));
+  });
+
   testWidgets('immediate mode: every word is a turn, flagged as board mode, and the answer comes back as board symbols',
       (tester) async {
     final service = _Scripted();

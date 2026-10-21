@@ -486,8 +486,13 @@ class ObzImportResult {
     required this.boardsCount,
     required this.imagesCount,
     this.unreachableBoards = 0,
+    this.imagesDropped = 0,
     this.layout,
   });
+
+  /// Pictures the file had that could not be kept (storage refused them).
+  /// Zero on a good import; the import screen says it when it is not.
+  final int imagesDropped;
 
   final List<BoardWord> words;
 
