@@ -28,6 +28,7 @@ import '../widgets/big_button.dart';
 import '../widgets/chosen_pictos.dart';
 import '../widgets/board_composer.dart';
 import '../widgets/board_grid.dart';
+import '../widgets/board_say.dart';
 import '../widgets/full_image_view.dart';
 import '../widgets/quick_bar.dart';
 import '../widgets/quick_fire_overlay.dart';
@@ -268,6 +269,12 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// pilot's comparison switch.
   bool _showBoard = true;
 
+  /// The companion's latest words as the user's own symbols, and which
+  /// one is being spoken now (lit while the voice runs; -1 = none).
+  List<BoardSaySymbol> _boardSay = const [];
+  int _boardSayLit = -1;
+  final List<Timer> _boardSayTimers = [];
+
   BoardPage? get _boardPage {
     final l = _boardLayout;
     if (l == null) return null;
@@ -354,6 +361,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
             _boardLayout = l;
             _boardPageId = l.rootId;
           });
+          _lightBoardSay(_turn.say);
         }
       });
     }
@@ -375,11 +383,17 @@ class _CompanionScreenState extends State<CompanionScreen> {
       }
     });
     // Speak the opening after the first frame.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _speak(_turn.say));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _speak(_turn.say);
+      _lightBoardSay(_turn.say);
+    });
   }
 
   @override
   void dispose() {
+    for (final t in _boardSayTimers) {
+      t.cancel();
+    }
     _quickFireTimer?.cancel();
     _speech.dispose();
     _input.dispose();
@@ -390,6 +404,38 @@ class _CompanionScreenState extends State<CompanionScreen> {
   }
 
   void _speak(String text) => _speech.speak(text);
+
+  /// The companion's words as the user's own board symbols, lit one by
+  /// one as the voice runs (clock-timed for now, see board_say.dart). Each
+  /// word is logged as on the board or not — how much Paz speaks their
+  /// language. Nothing happens without an imported board.
+  void _lightBoardSay(String say) {
+    final layout = _boardLayout;
+    if (layout == null) return;
+    for (final t in _boardSayTimers) {
+      t.cancel();
+    }
+    _boardSayTimers.clear();
+    final symbols = symbolsFor(say, layout);
+    unawaited(_log.logBoardSay(
+      fromBoard: [for (final s in symbols) if (s.fromBoard) s.word],
+      notFromBoard: [for (final s in symbols) if (!s.fromBoard) s.word],
+    ));
+    setState(() {
+      _boardSay = symbols;
+      _boardSayLit = -1;
+    });
+    final schedule = sayLightingSchedule(symbols);
+    for (var i = 0; i < symbols.length; i++) {
+      final index = i;
+      _boardSayTimers.add(Timer(Duration(milliseconds: schedule[i]), () {
+        if (mounted) setState(() => _boardSayLit = index);
+      }));
+    }
+    _boardSayTimers.add(Timer(Duration(milliseconds: schedule.last), () {
+      if (mounted) setState(() => _boardSayLit = -1);
+    }));
+  }
 
   /// The creator's own words, all pages — what "קרא הכל" reads.
   String get _creationText => _creation.map((p) => p.text).join('. ');
@@ -466,6 +512,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
       _busy = false;
     });
     _scrollThreadToEnd();
+    if (speak) _lightBoardSay(turn.say);
     if (speak) {
       // A confirm question is spoken WHOLE — question and choices — the
       // screen must never assume reading (field feedback 22.9: "תזכור
@@ -1485,6 +1532,13 @@ class _CompanionScreenState extends State<CompanionScreen> {
     setState(() => _activeQuickFire = null);
   }
 
+  int get _lastCompanionIndex {
+    for (var i = _thread.length - 1; i >= 0; i--) {
+      if (_thread[i].kind == _ThreadKind.companion) return i;
+    }
+    return -1;
+  }
+
   void _scrollThreadToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_threadScroll.hasClients) return;
@@ -1602,6 +1656,15 @@ class _CompanionScreenState extends State<CompanionScreen> {
                 itemBuilder: (_, i) => _ThreadBubble(
                   item: _thread[i],
                   onSpeak: _speak,
+                  // Only the newest companion bubble speaks in board
+                  // symbols with the live light; older ones stay as they
+                  // were said.
+                  boardSymbols: _boardLayout != null &&
+                          i == _lastCompanionIndex &&
+                          _thread[i].kind == _ThreadKind.companion
+                      ? _boardSay
+                      : const [],
+                  boardLit: _boardSayLit,
                 ),
               ),
             ),
@@ -1994,10 +2057,20 @@ enum _ThreadKind { user, partner, companion, creation }
 /// demonstration clearly labeled, and each piece added to the creation as a
 /// small highlighted moment — the dialogue made visible.
 class _ThreadBubble extends StatelessWidget {
-  const _ThreadBubble({required this.item, required this.onSpeak});
+  const _ThreadBubble({
+    required this.item,
+    required this.onSpeak,
+    this.boardSymbols = const [],
+    this.boardLit = -1,
+  });
 
   final _ThreadItem item;
   final ValueChanged<String> onSpeak;
+
+  /// The companion's words as the user's board symbols (empty: the
+  /// bubble renders as before), and which one the voice is on.
+  final List<BoardSaySymbol> boardSymbols;
+  final int boardLit;
 
   @override
   Widget build(BuildContext context) {
@@ -2008,6 +2081,8 @@ class _ThreadBubble extends StatelessWidget {
           symbols: item.symbols,
           onSpeak: () => onSpeak(item.text),
           onSymbolTap: onSpeak,
+          boardSymbols: boardSymbols,
+          boardLit: boardLit,
         );
       case _ThreadKind.user:
       case _ThreadKind.partner:
@@ -2103,12 +2178,20 @@ class _CompanionBubble extends StatelessWidget {
     required this.onSpeak,
     this.symbols = const [],
     this.onSymbolTap,
+    this.boardSymbols = const [],
+    this.boardLit = -1,
   });
 
   final String text;
   final List<SaySymbol> symbols;
   final VoidCallback onSpeak;
   final ValueChanged<String>? onSymbolTap;
+
+  /// With an imported board (21.10): the message in the user's OWN
+  /// symbols — their pictures for words their board has, bare cards for
+  /// the rest — lit word by word as the voice runs.
+  final List<BoardSaySymbol> boardSymbols;
+  final int boardLit;
 
   @override
   Widget build(BuildContext context) {
@@ -2129,7 +2212,13 @@ class _CompanionBubble extends StatelessWidget {
                 color: AppColors.primary.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: symbols.isEmpty
+              child: boardSymbols.isNotEmpty
+                  ? BoardSayStrip(
+                      symbols: boardSymbols,
+                      lit: boardLit,
+                      onWordTap: onSymbolTap,
+                    )
+                  : symbols.isEmpty
                   ? Text(
                       stripNikud(text),
                       style: const TextStyle(
