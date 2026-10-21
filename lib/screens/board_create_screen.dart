@@ -266,7 +266,21 @@ class _BoardCreateScreenState extends State<BoardCreateScreen> {
       _speak('רגע… ${words.map((b) => b.label).join(' ')}');
       return;
     }
-    final text = words.map((b) => b.spokenText).join(' ');
+    final text =
+        words.map((b) => b.spokenText.trim()).where((t) => t.isNotEmpty).join(' ');
+    if (text.isEmpty) {
+      // A picture-only button (a person's photo, an arrow) has no word
+      // yet: it stands on the stage as chosen, but there is nothing to
+      // say to the companion, so no turn starts — and nothing gets stuck
+      // (iPad 21.10: the screen froze on exactly this press).
+      // TODO(words): let a partner name picture-only buttons, so they can
+      // reach the companion too.
+      setState(() {
+        _chosen.addAll(words);
+        _tray.clear();
+      });
+      return;
+    }
     setState(() {
       _chosen.addAll(words);
       _tray.clear();
@@ -282,7 +296,11 @@ class _BoardCreateScreenState extends State<BoardCreateScreen> {
   Future<void> _retry() => _performTurn(_lastInput);
 
   Future<void> _performTurn(String input) async {
-    if (input.trim().isEmpty) return;
+    if (input.trim().isEmpty) {
+      // Never leave the screen busy with nothing in flight.
+      if (_busy) setState(() => _busy = false);
+      return;
+    }
     setState(() {
       _busy = true;
       _failed = false;

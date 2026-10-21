@@ -20,6 +20,8 @@ const _layout = BoardLayout(
       BoardButton(id: '1', row: 0, col: 0, label: 'שלום'),
       BoardButton(id: '2', row: 0, col: 1, label: 'אוכל', loadBoardId: 'food'),
       BoardButton(id: '3', row: 1, col: 0, label: 'כלב', speak: 'הכלב שלי'),
+      // A picture-only button: no label, no vocalization (a person's photo).
+      BoardButton(id: '4', row: 1, col: 1, label: '', imageFile: 'p.jpg'),
     ]),
     BoardPage(id: 'food', name: 'אוכל', rows: 1, columns: 2, buttons: [
       BoardButton(id: '1', row: 0, col: 0, label: 'מים', backgroundColor: '#00f'),
@@ -174,6 +176,26 @@ void main() {
     final say = entries.lastWhere((e) => e['type'] == 'board_say');
     expect(say['fromBoard'], ['כלב', 'ואוכל']);
     expect(say['notFromBoard'], ['יופי']);
+  });
+
+  testWidgets('a picture-only button never freezes the screen', (tester) async {
+    final service = _Scripted();
+    await _pump(tester, service);
+    await _settle(tester);
+
+    // Its picture did not survive storage in the test (no file), so the
+    // cell shows the visible placeholder — tap that.
+    await tester.tap(find.byIcon(Icons.image_not_supported_outlined));
+    await tester.pump();
+    // Nothing to say: no turn, and the screen is not busy.
+    expect(service.inputs, isEmpty);
+
+    // The next word still reaches the companion.
+    await tester.tap(find.text('שלום'));
+    await tester.pump();
+    expect(service.inputs, ['שלום']);
+    service.answer(const CompanionTurn(say: 'שלום'));
+    await _settle(tester);
   });
 
   testWidgets('tray mode: words gather and "שלח" sends them as one turn',
