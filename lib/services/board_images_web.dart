@@ -64,11 +64,15 @@ class BoardImagesWeb {
       await for (final c in cursors) {
         final key = c.key.toString();
         final value = c.value;
+        // What comes back depends on the browser's binding: bytes, a raw
+        // buffer, or a plain list. All three are the picture.
         final bytes = value is Uint8List
             ? value
-            : value is List<int>
-                ? Uint8List.fromList(value)
-                : null;
+            : value is ByteBuffer
+                ? value.asUint8List()
+                : value is List<int>
+                    ? Uint8List.fromList(value)
+                    : null;
         if (bytes != null) out[key] = dataUri(key, bytes);
       }
       await txn.completed;

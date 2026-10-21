@@ -17,6 +17,10 @@ void main() {
         File('docs/samples/sample-board.obz').readAsBytesSync());
     expect(result.imagesCount, 12);
     expect(result.imagesDropped, 0);
+    // The result itself carries the pictures — the import screen shows
+    // them at once, without a reopen.
+    expect(result.words.where((w) => w.imagePath != null).length, 12);
+    expect(result.layout!.home!.buttons.first.imagePath, startsWith('data:image/'));
 
     final words = await store.load();
     expect(words.where((w) => w.imagePath?.startsWith('data:image/png;base64,') ?? false).length, 12);
