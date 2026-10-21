@@ -1627,7 +1627,15 @@ class _CompanionScreenState extends State<CompanionScreen> {
         // capped and scrolls.
         final bodyH = box.maxHeight;
         final compact = bodyH < 760;
-        final bottomCap = bodyH * (compact ? 0.42 : 0.5);
+        // With the user's board on screen the bottom area is tall; the
+        // stage and the bottom must leave the thread room for the
+        // companion's bubble (Mac window 21.10: the bubble with the
+        // board symbols had no height at all).
+        final boardShown = _showBoard && !_lowEnergy && _boardPage != null;
+        final bottomCap = bodyH * (compact ? 0.42 : (boardShown ? 0.45 : 0.5));
+        final stageCap = compact
+            ? bodyH * 0.38
+            : (boardShown ? (bodyH * 0.32).clamp(220.0, 460.0) : 460.0);
         return Stack(
           children: [
             Column(
@@ -1644,8 +1652,8 @@ class _CompanionScreenState extends State<CompanionScreen> {
               pictos: _pictos,
               paintError: _paintError,
               timingLine: _partnerMode ? _lastTimingLine : '',
-              imageHeight: compact ? 150.0 : 240.0,
-              maxHeightCap: compact ? bodyH * 0.38 : 460.0,
+              imageHeight: compact ? 150.0 : (boardShown ? 200.0 : 240.0),
+              maxHeightCap: stageCap,
             ),
             Expanded(
               child: ListView.separated(
