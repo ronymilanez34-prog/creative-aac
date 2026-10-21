@@ -119,8 +119,15 @@ void main() {
     expect(find.text('שלום'), findsOneWidget);
     expect(find.text('שלום הכלב שלי'), findsWidgets);
 
-    service.answer(const CompanionTurn(say: 'יופי', options: _chips));
+    service.answer(const CompanionTurn(say: 'כלב ומים, יופי', options: _chips));
     await _settle(tester);
+    // Paz speaks in the board's symbols: "יופי" is not on the board — a
+    // bare card; "ומים" peels to "מים"; "כלב" has its button.
+    expect(find.text('יופי'), findsOneWidget);
+    expect(find.text('ומים'), findsOneWidget);
+    final say = (await InteractionLog().entries()).lastWhere((e) => e['type'] == 'board_say');
+    expect(say['fromBoard'], ['כלב', 'ומים']);
+    expect(say['notFromBoard'], ['יופי']);
 
     // Navigation on the board still works inside the loop.
     await tester.tap(find.text('אוכל'));
