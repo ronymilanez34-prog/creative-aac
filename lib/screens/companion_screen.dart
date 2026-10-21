@@ -27,6 +27,7 @@ import '../theme.dart';
 import '../widgets/big_button.dart';
 import '../widgets/chosen_pictos.dart';
 import '../widgets/board_composer.dart';
+import '../widgets/board_grid.dart';
 import '../widgets/full_image_view.dart';
 import '../widgets/quick_bar.dart';
 import '../widgets/quick_fire_overlay.dart';
@@ -43,7 +44,12 @@ import '../widgets/sturdy_tap.dart';
 /// Driven by [CompanionService]; the demo passes a [MockCompanionService] so it
 /// runs instantly with no backend, the real app passes ClaudeCompanionService.
 class CompanionScreen extends StatefulWidget {
-  const CompanionScreen({super.key, required this.service, this.resumeStory});
+  const CompanionScreen({
+    super.key,
+    required this.service,
+    this.resumeStory,
+    this.boardLayout,
+  });
 
   final CompanionService service;
 
@@ -52,6 +58,10 @@ class CompanionScreen extends StatefulWidget {
   /// the pictures, and the rolling summary are seeded back in, and saving
   /// updates the same story.
   final Story? resumeStory;
+
+  /// The user's own board as the way in (21.10): null loads the imported
+  /// one; a test passes one directly.
+  final BoardLayout? boardLayout;
 
   @override
   State<CompanionScreen> createState() => _CompanionScreenState();
@@ -246,6 +256,25 @@ class _CompanionScreenState extends State<CompanionScreen> {
   /// must not assume a keyboard).
   List<BoardWord> _boardWords = const [];
 
+  /// The user's own board, in its own layout, as the way to answer the
+  /// companion (21.10, Rony: "press a few things and send, so Paz reads
+  /// it all as one chunk"). Words gather in a tray; "שלח" sends them as
+  /// one input. Null until a board was imported.
+  BoardLayout? _boardLayout;
+  String? _boardPageId;
+  final List<BoardButton> _boardTray = [];
+
+  /// A partner can hide the board (back to chips + typing) — also the
+  /// pilot's comparison switch.
+  bool _showBoard = true;
+
+  BoardPage? get _boardPage {
+    final l = _boardLayout;
+    if (l == null) return null;
+    final id = _boardPageId;
+    return (id == null ? null : l.page(id)) ?? l.home;
+  }
+
   /// Latencies (ms) of the user's last few selections — the live pace signal.
   /// Fast + consistent → the AI shortens or lays out; a long pause → it slows
   /// down and calms. Partner modelling taps are excluded.
@@ -314,6 +343,20 @@ class _CompanionScreenState extends State<CompanionScreen> {
     BoardStore().load().then((words) {
       if (mounted && words.isNotEmpty) setState(() => _boardWords = words);
     });
+    final given = widget.boardLayout;
+    if (given != null) {
+      _boardLayout = given;
+      _boardPageId = given.rootId;
+    } else {
+      BoardStore().loadLayout().then((l) {
+        if (mounted && l != null && !l.isEmpty) {
+          setState(() {
+            _boardLayout = l;
+            _boardPageId = l.rootId;
+          });
+        }
+      });
+    }
     ProfileStore().load().then((p) {
       if (mounted) setState(() => _companionName = p.effectiveCompanionName);
     });
@@ -1101,6 +1144,61 @@ class _CompanionScreenState extends State<CompanionScreen> {
     unawaited(_paintScene(pending.scene, forPage: _currentPage));
   }
 
+  /// A press on the user's own board: a link opens its page; a word is
+  /// heard at once and waits in the tray; a picture-only button (no word
+  /// yet) is ignored here rather than freezing anything.
+  void _onBoardButton(BoardButton b) {
+    final page = _boardPage;
+    final layout = _boardLayout;
+    if (page == null || layout == null) return;
+    if (b.isLink) {
+      unawaited(_log.logBoardChoice(
+        label: b.label,
+        pageId: page.id,
+        row: b.row,
+        col: b.col,
+        mode: 'tray',
+        kind: 'board_nav',
+      ));
+      final target = b.loadBoardId!;
+      if (layout.page(target) == null) return;
+      if (b.label.isNotEmpty) _speak(b.label);
+      setState(() => _boardPageId = target);
+      return;
+    }
+    unawaited(_log.logBoardChoice(
+      label: b.label,
+      pageId: page.id,
+      row: b.row,
+      col: b.col,
+      mode: 'tray',
+      kind: 'board_word',
+    ));
+    final t = b.spokenText.trim();
+    if (t.isEmpty) return;
+    _speak(t);
+    setState(() => _boardTray.add(b));
+  }
+
+  /// "שלח": everything in the tray goes to the companion as ONE input —
+  /// the whole chunk, read together.
+  void _sendBoardTray() {
+    final text = _boardTray
+        .map((b) => b.spokenText.trim())
+        .where((t) => t.isNotEmpty)
+        .join(' ');
+    if (text.isEmpty) return;
+    if (_busy) {
+      // Keep the tray: the words are not lost, only waiting.
+      _speak('רגע… $text');
+      return;
+    }
+    final n = _boardTray.length;
+    setState(() => _boardTray.clear());
+    unawaited(_log.logBoardSend(wordCount: n, mode: 'tray'));
+    unawaited(_send(text, kind: 'board'));
+  }
+
   bool _isTypedSlip(String text) {
     final t = text.trim();
     if (t.characters.length >= 2) return false;
@@ -1545,6 +1643,23 @@ class _CompanionScreenState extends State<CompanionScreen> {
                 lowEnergy: _lowEnergy,
                 partnerMode: _partnerMode,
                 partnerArmed: _partnerArmed,
+                boardAvailable: _boardLayout != null,
+                showBoard: _showBoard,
+                onShowBoard: (v) => setState(() => _showBoard = v),
+                // The board stays out of low-energy mode: two chips, calm.
+                board: _showBoard && !_lowEnergy && _boardPage != null
+                    ? BoardPanel(
+                        page: _boardPage!,
+                        isHome: _boardPage!.id == _boardLayout!.rootId,
+                        tray: _boardTray,
+                        gridHeight: compact ? 230.0 : 380.0,
+                        onButton: _onBoardButton,
+                        onHome: () =>
+                            setState(() => _boardPageId = _boardLayout!.rootId),
+                        onSend: _sendBoardTray,
+                        onClear: () => setState(() => _boardTray.clear()),
+                      )
+                    : null,
                 // "דף חדש" appears once the current page has words OR a
                 // picture (a picture-only page is a page).
                 onNewPage: _currentPageHasContent ? _newPage : null,
@@ -2148,7 +2263,18 @@ class _OptionsArea extends StatelessWidget {
     required this.onChip,
     required this.onSubmit,
     this.onNewPage,
+    this.board,
+    this.boardAvailable = false,
+    this.showBoard = true,
+    this.onShowBoard,
   });
+
+  /// The user's own board as the way to answer, below the chips; null
+  /// shows the typing row instead.
+  final Widget? board;
+  final bool boardAvailable;
+  final bool showBoard;
+  final ValueChanged<bool>? onShowBoard;
 
   final List<ChipOption> options;
   final TextEditingController controller;
@@ -2171,14 +2297,23 @@ class _OptionsArea extends StatelessWidget {
       child: Column(
         children: [
           if (partnerMode)
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: FilterChip(
-                label: const Text('הדגמה של השותף'),
-                avatar: const Icon(Icons.record_voice_over_outlined, size: 18),
-                selected: partnerArmed,
-                onSelected: onPartnerArmed,
-              ),
+            Wrap(
+              spacing: 8,
+              children: [
+                FilterChip(
+                  label: const Text('הדגמה של השותף'),
+                  avatar: const Icon(Icons.record_voice_over_outlined, size: 18),
+                  selected: partnerArmed,
+                  onSelected: onPartnerArmed,
+                ),
+                if (boardAvailable)
+                  FilterChip(
+                    label: const Text('הלוח שלו'),
+                    avatar: const Icon(Icons.grid_view_rounded, size: 18),
+                    selected: showBoard,
+                    onSelected: onShowBoard,
+                  ),
+              ],
             ),
           if (partnerMode) const SizedBox(height: 8),
           Wrap(
@@ -2207,9 +2342,15 @@ class _OptionsArea extends StatelessWidget {
                 ),
             ],
           ),
+          // The user's own board, when there is one: words gather in its
+          // tray and "שלח" sends them together. Typing steps aside for it.
+          if (board != null) ...[
+            const SizedBox(height: 12),
+            board!,
+          ]
           // The free-text row is hidden in low-energy mode — unless there are
           // no chips at all: never leave the user facing a dead end.
-          if (!lowEnergy || options.isEmpty) ...[
+          else if (!lowEnergy || options.isEmpty) ...[
             const SizedBox(height: 12),
             Row(
               children: [
