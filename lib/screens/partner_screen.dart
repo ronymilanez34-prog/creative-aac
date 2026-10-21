@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../models/profile.dart';
 import '../services/backup.dart' as backup;
+import '../services/board_mode_prefs.dart';
 import '../services/interaction_log.dart';
 import '../services/profile_store.dart';
 import '../services/speech.dart';
@@ -542,6 +543,9 @@ class _PartnerScreenState extends State<PartnerScreen> {
                     style: TextStyle(color: AppColors.textSoft, fontSize: 13),
                   ),
                   const SizedBox(height: 20),
+                  const _SectionTitle('יוצרים מהלוח שלי'),
+                  const _BoardModeSwitch(),
+                  const SizedBox(height: 20),
                   const _SectionTitle('קול'),
                   BigButton(
                     label: 'בדיקת קול',
@@ -580,6 +584,61 @@ class _PartnerScreenState extends State<PartnerScreen> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+/// How the user expresses themselves on their board — the pattern they
+/// already know (21.10). Immediate: every press is a message. Tray: words
+/// gather and "שלח" sends them. Set once by a partner; the board screen
+/// follows it. Self-contained so the profile's save flow is untouched.
+class _BoardModeSwitch extends StatefulWidget {
+  const _BoardModeSwitch();
+
+  @override
+  State<_BoardModeSwitch> createState() => _BoardModeSwitchState();
+}
+
+class _BoardModeSwitchState extends State<_BoardModeSwitch> {
+  BoardExpressionMode? _mode;
+
+  @override
+  void initState() {
+    super.initState();
+    BoardModePrefs().load().then((m) {
+      if (mounted) setState(() => _mode = m);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = _mode;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'איך הוא רגיל להתבטא בלוח שלו? מיידי: כל לחיצה על מילה היא מסר. '
+          'חלונית: המילים נאספות למעלה, ו"שלח" שולח את כולן יחד.',
+          style: TextStyle(color: AppColors.textSoft, fontSize: 13),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('חלונית: מרכיבים ואז "שלח"'),
+          subtitle: Text(mode == BoardExpressionMode.tray
+              ? 'פעיל — המילים נאספות עד "שלח"'
+              : 'כבוי — כל לחיצה נשלחת מיד (ברירת המחדל)'),
+          value: mode == BoardExpressionMode.tray,
+          onChanged: mode == null
+              ? null
+              : (v) {
+                  final next = v
+                      ? BoardExpressionMode.tray
+                      : BoardExpressionMode.immediate;
+                  setState(() => _mode = next);
+                  BoardModePrefs().save(next);
+                },
+        ),
+      ],
     );
   }
 }

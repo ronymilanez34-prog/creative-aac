@@ -58,6 +58,7 @@ class ClaudeCompanionService implements CompanionService {
     InputSource source = InputSource.user,
     bool lowEnergy = false,
     String? paceHint,
+    bool boardMode = false,
   }) async {
     final res = await _client
         .post(
@@ -90,6 +91,9 @@ class ClaudeCompanionService implements CompanionService {
             'inputSource': source == InputSource.partner ? 'partner' : 'user',
             'lowEnergy': lowEnergy,
             if (paceHint != null) 'paceHint': paceHint,
+            // The board screen: the answer must fit the user's own
+            // vocabulary (sent in the profile). Absent = unchanged prompt.
+            if (boardMode) 'boardMode': true,
           }),
         )
         .timeout(const Duration(seconds: 45));

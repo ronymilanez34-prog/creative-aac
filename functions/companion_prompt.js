@@ -328,6 +328,17 @@ const LOW_ENERGY_NOTE = `# מצב אנרגיה נמוכה — כרגע פעיל
 למשתמש קשה עכשיו. הצע 2 אפשרויות בלבד, פשוטות מאוד. משפט אחד קצר ב-say.
 בלי שאלות מורכבות, בלי אישורים אלא אם הכרחי. רוגע מעל הכול.`;
 
+// The board screen ("יוצרים מהלוח שלי", 21.10): the user chose from their
+// own board and the answer is shown back as that board's symbols — a word
+// the board lacks appears as a bare text card. So `say` stays inside the
+// vocabulary the profile carries. Rendered after the cache breakpoint.
+const BOARD_MODE_NOTE = `# מצב לוח: אתה מדבר בשפה של הלוח שלו
+התור הזה הגיע מהמסך שבו המשתמש בוחר מילים מהלוח האישי שלו, והתשובה שלך מוצגת לו כסמלים מאותו לוח.
+לכן ב-say השתמש ככל האפשר רק במילים מתוך "אוצר המילים המוכר שלו" שבפרופיל, באותה צורה בדיוק (אותה מילה, אותו כתיב).
+משפטים קצרים: 2-5 מילים במשפט, משפט אחד או שניים. שאלה אחת לכל היותר.
+מילה שאין בלוח מוצגת לו בלי סמל, אז רק כשאין ברירה, ועדיף מילה אחת כזו ולא יותר.
+אל תשתמש באימוג'י בתוך say. ב-options הצע מילים שקיימות בלוח שלו.`;
+
 /**
  * Builds the `system` blocks for the Messages API, structured for prompt
  * caching: the stable prefix (instructions + profile) carries a
@@ -356,7 +367,7 @@ const PACE_NOTES = {
 // lib/services/creation_context.dart.
 const SUMMARY_ASK_CHARS = 700;
 
-function buildSystemPrompt({ profile, creationSoFar, creationSummary, sceneSoFar, declinedOptions, lowEnergy, paceHint }) {
+function buildSystemPrompt({ profile, creationSoFar, creationSummary, sceneSoFar, declinedOptions, lowEnergy, paceHint, boardMode }) {
   const profileText =
     profile && String(profile).trim() ? String(profile).trim() : "אין עדיין פרופיל — פגוש אותו בעדינות ולמד מהתגובות.";
   const creationText =
@@ -365,6 +376,7 @@ function buildSystemPrompt({ profile, creationSoFar, creationSummary, sceneSoFar
     creationSummary && String(creationSummary).trim() ? String(creationSummary).trim() : "";
 
   const lowEnergyBlock = lowEnergy ? `${LOW_ENERGY_NOTE}\n\n` : "";
+  const boardBlock = boardMode ? `${BOARD_MODE_NOTE}\n\n` : "";
   // Own-property check: a hostile paceHint like "constructor" must not
   // resolve through the prototype chain into the prompt.
   const paceNote = Object.prototype.hasOwnProperty.call(PACE_NOTES, paceHint)
@@ -408,7 +420,7 @@ function buildSystemPrompt({ profile, creationSoFar, creationSummary, sceneSoFar
     },
     {
       type: "text",
-      text: `${lowEnergyBlock}${paceBlock}${summaryAskBlock}${creationBlock}${sceneBlock}${declinedBlock}`,
+      text: `${lowEnergyBlock}${boardBlock}${paceBlock}${summaryAskBlock}${creationBlock}${sceneBlock}${declinedBlock}`,
     },
   ];
 }

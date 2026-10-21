@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:creative_aac/models/board.dart';
 import 'package:creative_aac/services/image_sink.dart';
 import 'package:creative_aac/services/obz_importer.dart';
 
@@ -125,5 +126,52 @@ void main() {
     expect(result.words, isNotEmpty);
     expect(result.imagesCount, greaterThan(0));
     expect(sink.images, isNotEmpty);
+  });
+
+  layoutTests();
+}
+
+void layoutTests() {
+  test('obz import keeps the board map: pages, positions, links', () async {
+    final result = await ObzImporter().import(
+      bytes: buildObz(),
+      images: const NoopImageSink(),
+    );
+    final layout = result.layout!;
+    expect(layout.rootId, 'boards/home.obf');
+    // Only reachable pages, home first.
+    expect(layout.pages.map((p) => p.id).toList(),
+        ['boards/home.obf', 'boards/food.obf', 'boards/deep.obf']);
+
+    final home = layout.home!;
+    expect(home.name, 'בית');
+    expect((home.rows, home.columns), (2, 2));
+    // Positions as in grid.order; the hidden button leaves its cell empty.
+    expect(home.at(0, 0)!.label, 'שלום');
+    expect(home.at(0, 1)!.label, 'אוכל');
+    expect(home.at(1, 0)!.label, 'משחק');
+    expect(home.at(1, 1), isNull);
+    // Links resolve to page ids — by path and by id alike.
+    expect(home.at(0, 1)!.loadBoardId, 'boards/food.obf');
+    expect(home.at(1, 0)!.loadBoardId, 'boards/deep.obf');
+    expect(home.at(0, 0)!.isLink, isFalse);
+
+    final food = layout.page('boards/food.obf')!;
+    expect(food.at(0, 1)!.loadBoardId, 'boards/home.obf');
+
+    // The word index finds a label from any page.
+    expect(layout.byLabel['מים']!.row, 0);
+  });
+
+  test('the layout round-trips through JSON', () async {
+    final result = await ObzImporter().import(
+      bytes: buildObz(),
+      images: const NoopImageSink(),
+    );
+    final restored = BoardLayout.fromJson(
+        jsonDecode(jsonEncode(result.layout!.toJson())) as Map<String, dynamic>);
+    expect(restored.rootId, result.layout!.rootId);
+    expect(restored.pages.length, 3);
+    expect(restored.home!.at(0, 1)!.loadBoardId, 'boards/food.obf');
   });
 }

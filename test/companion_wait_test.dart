@@ -51,6 +51,7 @@ class _Scripted implements CompanionService {
     InputSource source = InputSource.user,
     bool lowEnergy = false,
     String? paceHint,
+    bool boardMode = false,
   }) {
     inputs.add(userInput);
     final c = Completer<CompanionTurn>();
